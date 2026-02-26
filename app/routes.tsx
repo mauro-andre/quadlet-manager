@@ -8,6 +8,8 @@ import * as ContainerDetail from "./containers/ContainerDetail.js";
 import * as QuadletList from "./quadlets/QuadletList.js";
 import * as QuadletNew from "./quadlets/QuadletNew.js";
 import * as QuadletEdit from "./quadlets/QuadletEdit.js";
+import * as ImageList from "./images/ImageList.js";
+import * as ImageDetail from "./images/ImageDetail.js";
 
 export default [
     {
@@ -23,6 +25,8 @@ export default [
                     { path: "/quadlets", module: QuadletList },
                     { path: "/quadlets/new", module: QuadletNew },
                     { path: "/quadlets/:name", module: QuadletEdit },
+                    { path: "/images", module: ImageList },
+                    { path: "/images/:id", module: ImageDetail },
                 ],
             },
         ],

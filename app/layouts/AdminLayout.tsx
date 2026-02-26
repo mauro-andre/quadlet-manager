@@ -27,6 +27,7 @@ const navItems = [
     { path: "/", label: "Dashboard" },
     { path: "/containers", label: "Containers" },
     { path: "/quadlets", label: "Quadlets" },
+    { path: "/images", label: "Images" },
 ];
 
 export const Component = ({ children }: { children?: ComponentChildren }) => {

@@ -1,6 +1,6 @@
 import http from "node:http";
 import { join } from "node:path";
-import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse } from "./podman.types.js";
+import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse, PodmanImage, PodmanImageInspect, PodmanImageHistory } from "./podman.types.js";
 
 function getDefaultSocket(): string {
     // Rootless: $XDG_RUNTIME_DIR/podman/podman.sock
@@ -92,4 +92,27 @@ export async function getAllContainerStats(): Promise<PodmanStats[]> {
         `/containers/stats?stream=false`
     );
     return res.Stats ?? [];
+}
+
+export async function listImages(): Promise<PodmanImage[]> {
+    return podmanRequest<PodmanImage[]>(`/images/json`);
+}
+
+export async function inspectImage(name: string): Promise<PodmanImageInspect> {
+    return podmanRequest<PodmanImageInspect>(
+        `/images/${encodeURIComponent(name)}/json`
+    );
+}
+
+export async function getImageHistory(name: string): Promise<PodmanImageHistory[]> {
+    return podmanRequest<PodmanImageHistory[]>(
+        `/images/${encodeURIComponent(name)}/history`
+    );
+}
+
+export async function removeImage(name: string, force: boolean = false): Promise<void> {
+    await podmanRequest<unknown>(
+        `/images/${encodeURIComponent(name)}?force=${force}`,
+        "DELETE"
+    );
 }

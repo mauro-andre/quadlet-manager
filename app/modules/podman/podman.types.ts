@@ -76,3 +76,51 @@ export interface PodmanStatsResponse {
     Error: unknown;
     Stats: PodmanStats[] | null;
 }
+
+export interface PodmanImage {
+    Id: string;
+    RepoTags: string[] | null;
+    RepoDigests: string[] | null;
+    Size: number;
+    VirtualSize: number;
+    SharedSize: number;
+    Containers: number;
+    Created: number; // unix timestamp (seconds)
+    Labels: Record<string, string> | null;
+    ParentId: string;
+}
+
+export interface PodmanImageInspect {
+    Id: string;
+    RepoTags: string[] | null;
+    RepoDigests: string[] | null;
+    Size: number;
+    VirtualSize: number;
+    Created: string; // ISO date string
+    Architecture: string;
+    Os: string;
+    Config: {
+        Env: string[] | null;
+        Cmd: string[] | null;
+        Entrypoint: string[] | null;
+        ExposedPorts: Record<string, object> | null;
+        Labels: Record<string, string> | null;
+        WorkingDir: string;
+        User: string;
+        Volumes: Record<string, object> | null;
+    };
+    RootFS: {
+        Type: string;
+        Layers: string[] | null;
+    };
+}
+
+export interface PodmanImageHistory {
+    id: string;
+    created: number; // unix timestamp
+    createdBy: string;
+    size: number;
+    comment: string;
+    tags: string[] | null;
+    emptyLayer: boolean;
+}
