@@ -89,7 +89,7 @@ export class MetricsStore {
     private lastRollup: Record<string, number> = {};
 
     constructor(dataDir?: string) {
-        const dir = dataDir ?? join(process.cwd(), "data");
+        const dir = dataDir ?? join(process.cwd(), ".data");
         this.filePath = join(dir, "metrics.json");
     }
 
