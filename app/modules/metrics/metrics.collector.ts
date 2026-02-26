@@ -4,9 +4,15 @@ import type { MetricsStore } from "./metrics.store.js";
 const POLL_INTERVAL = 5_000; // 5 seconds
 const PURGE_INTERVAL = 3600; // 1 hour
 
+interface CpuSnapshot {
+    cpuNano: number;
+    systemNano: number;
+}
+
 export function startCollector(store: MetricsStore): void {
     let running = true;
     let lastPurge = 0;
+    const prevCpu = new Map<string, CpuSnapshot>();
 
     const poll = async () => {
         if (!running) return;
@@ -20,6 +26,21 @@ export function startCollector(store: MetricsStore): void {
             const stats = await getAllContainerStats();
 
             for (const s of stats) {
+                // Calculate instantaneous CPU % from deltas
+                let cpu = 0;
+                const prev = prevCpu.get(s.ContainerID);
+                if (prev && prev.systemNano > 0) {
+                    const deltaCpu = s.CPUNano - prev.cpuNano;
+                    const deltaSystem = s.SystemNano - prev.systemNano;
+                    if (deltaSystem > 0) {
+                        cpu = Math.min(100, (deltaCpu / deltaSystem) * 100);
+                    }
+                }
+                prevCpu.set(s.ContainerID, {
+                    cpuNano: s.CPUNano,
+                    systemNano: s.SystemNano,
+                });
+
                 let netIn = 0;
                 let netOut = 0;
                 if (s.Network) {
@@ -31,7 +52,7 @@ export function startCollector(store: MetricsStore): void {
 
                 const point: MetricPoint = {
                     ts: now,
-                    cpu: s.CPU,
+                    cpu,
                     mem: s.MemUsage,
                     memLimit: s.MemLimit,
                     netIn,

@@ -17,28 +17,37 @@ function formatBytes(bytes: number): string {
 
 type ChartData = [number[], number[]];
 
+// Single shared promise — loads once, all charts wait on the same promise
+let uPlotPromise: Promise<any> | null = null;
+function loadUPlot() {
+    if (!uPlotPromise) {
+        uPlotPromise = import("uplot").then(async (m) => {
+            await import("uplot/dist/uPlot.min.css");
+            return (m as any).default ?? m;
+        });
+    }
+    return uPlotPromise;
+}
+
 export function MetricsChart({ data, type, title }: MetricsChartProps) {
     const containerRef = useRef<HTMLDivElement>(null);
     const chartRef = useRef<any>(null);
     const pendingRef = useRef<ChartData | null>(null);
 
-    // Initialize chart once (async import)
+    // Initialize chart once
     useEffect(() => {
         if (!containerRef.current || typeof window === "undefined") return;
 
         let destroyed = false;
 
-        (async () => {
-            const uPlot = (await import("uplot")).default;
-            await import("uplot/dist/uPlot.min.css");
-
+        loadUPlot().then((uPlot) => {
             if (destroyed || !containerRef.current) return;
 
             const el = containerRef.current;
-            const width = el.clientWidth - 16; // padding
+            const width = el.clientWidth - 16;
             const styles = getComputedStyle(el);
             const textColor = styles.getPropertyValue("color") || "#999";
-            const gridColor = styles.getPropertyValue("--grid-color") || "rgba(128,128,128,0.15)";
+            const gridColor = "rgba(128,128,128,0.15)";
 
             const opts: any = {
                 width,
@@ -84,7 +93,7 @@ export function MetricsChart({ data, type, title }: MetricsChartProps) {
 
             const chart = new uPlot(opts, initData, el);
             chartRef.current = chart;
-        })();
+        });
 
         return () => {
             destroyed = true;

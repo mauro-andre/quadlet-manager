@@ -2,7 +2,7 @@ import type { LoaderArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
-import { useEffect } from "preact/hooks";
+import { useEffect, useRef } from "preact/hooks";
 import type { PodmanContainer } from "../modules/podman/podman.types.js";
 import type { MetricPoint } from "../modules/metrics/metrics.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
@@ -32,25 +32,28 @@ export const loader = async (_args: LoaderArgs) => {
 
 export const Component = () => {
     const { data, loading } = useLoader<ContainerListData>();
+    const metricsRef = useRef<Record<string, MetricPoint>>({});
     const liveMetrics = useSignal<Record<string, MetricPoint>>({});
 
-    // Fetch initial current metrics
+    // Fetch initial current metrics + live SSE
     useEffect(() => {
         if (typeof window === "undefined") return;
+
         fetch("/api/metrics/current")
             .then((res) => res.json())
-            .then((data: Record<string, MetricPoint>) => { liveMetrics.value = data; })
+            .then((d: Record<string, MetricPoint>) => {
+                metricsRef.current = d;
+                liveMetrics.value = d;
+            })
             .catch(() => {});
-    }, []);
 
-    // Live SSE for all containers
-    useEffect(() => {
-        if (typeof window === "undefined") return;
         const es = new EventSource("/api/metrics/live");
         es.onmessage = (e) => {
             const { containerId, ...point } = JSON.parse(e.data) as MetricPoint & { containerId: string };
-            liveMetrics.value = { ...liveMetrics.value, [containerId]: point };
+            metricsRef.current = { ...metricsRef.current, [containerId]: point };
+            liveMetrics.value = metricsRef.current;
         };
+
         return () => es.close();
     }, []);
 

@@ -53,10 +53,10 @@ export interface PodmanContainerInspect {
 export interface PodmanStats {
     ContainerID: string;
     Name: string;
-    CPU: number;
+    CPUNano: number;
+    SystemNano: number;
     MemUsage: number;
     MemLimit: number;
-    MemPerc: number;
     Network: Record<string, {
         RxBytes: number;
         TxBytes: number;
