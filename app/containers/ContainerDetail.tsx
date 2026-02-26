@@ -5,6 +5,7 @@ import type { PodmanContainerInspect } from "../modules/podman/podman.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
+import { toast } from "../components/toast.js";
 import * as ContainerList from "./ContainerList.js";
 import * as css from "./ContainerDetail.css.js";
 
@@ -58,7 +59,7 @@ export const action_restart = async ({
 
 export const Component = () => {
     const params = useParams<{ id: string }>();
-    const { data, loading } = useLoader<ContainerDetailData>([params.id]);
+    const { data, loading, refetch } = useLoader<ContainerDetailData>([params.id]);
 
     if (loading.value) return <div>Loading...</div>;
     if (!data.value) return <div>Container not found</div>;
@@ -66,6 +67,11 @@ export const Component = () => {
     const { container, serviceName } = data.value;
     const name = container.Name.replace(/^\//, "");
     const state = container.State;
+
+    const run = (action: Promise<unknown>, msg: string) =>
+        action
+            .then(() => { toast(msg); refetch(); })
+            .catch(() => toast("Action failed", "error"));
 
     return (
         <div class={css.page}>
@@ -81,20 +87,29 @@ export const Component = () => {
                             label="Start"
                             variant="primary"
                             onClick={() =>
-                                action_start({ body: { serviceName } })
+                                run(
+                                    action_start({ body: { serviceName } }),
+                                    "Container started"
+                                )
                             }
                         />
                         <ActionButton
                             label="Stop"
                             variant="danger"
                             onClick={() =>
-                                action_stop({ body: { serviceName } })
+                                run(
+                                    action_stop({ body: { serviceName } }),
+                                    "Container stopped"
+                                )
                             }
                         />
                         <ActionButton
                             label="Restart"
                             onClick={() =>
-                                action_restart({ body: { serviceName } })
+                                run(
+                                    action_restart({ body: { serviceName } }),
+                                    "Container restarted"
+                                )
                             }
                         />
                     </div>

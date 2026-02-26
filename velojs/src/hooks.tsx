@@ -92,15 +92,16 @@ export function Loader<T>(moduleId?: string): {
  * @param moduleId - Injetado automaticamente pelo veloPlugin
  * @param deps - Array de dependências (triggers re-fetch quando mudam)
  */
-export function useLoader<T>(): { data: Signal<T | null>; loading: Signal<boolean> };
-export function useLoader<T>(deps: any[]): { data: Signal<T | null>; loading: Signal<boolean> };
-export function useLoader<T>(moduleId: string, deps?: any[]): { data: Signal<T | null>; loading: Signal<boolean> };
+export function useLoader<T>(): { data: Signal<T | null>; loading: Signal<boolean>; refetch: () => void };
+export function useLoader<T>(deps: any[]): { data: Signal<T | null>; loading: Signal<boolean>; refetch: () => void };
+export function useLoader<T>(moduleId: string, deps?: any[]): { data: Signal<T | null>; loading: Signal<boolean>; refetch: () => void };
 export function useLoader<T>(
     moduleIdOrDeps?: string | any[],
     deps?: any[],
 ): {
     data: Signal<T | null>;
     loading: Signal<boolean>;
+    refetch: () => void;
 } {
     // Resolve args: usuário chama useLoader(deps), vite transforma em useLoader(moduleId, deps)
     let moduleId: string | undefined;
@@ -135,13 +136,8 @@ export function useLoader<T>(
     const data = useSignal<T | null>(initialData);
     const loading = useSignal(false);
 
-    // Se não tem dado, faz fetch (navegação SPA)
-    // Na hidratação initialData !== null, então pula o fetch
-    // Quando deps mudam (ex: troca de rota), initialData será null e dispara fetch
-    useEffect(() => {
+    const fetchData = () => {
         if (typeof window === "undefined" || !moduleId) return;
-        if (initialData !== null) return;
-
         const currentPath = window.location.pathname;
         const searchParams = new URLSearchParams(window.location.search);
         searchParams.set("_data", "1");
@@ -157,9 +153,17 @@ export function useLoader<T>(
                 console.error("Erro ao carregar dados:", err);
                 loading.value = false;
             });
+    };
+
+    // Se não tem dado, faz fetch (navegação SPA)
+    // Na hidratação initialData !== null, então pula o fetch
+    // Quando deps mudam (ex: troca de rota), initialData será null e dispara fetch
+    useEffect(() => {
+        if (initialData !== null) return;
+        fetchData();
     }, resolvedDeps ?? []);
 
-    return { data, loading };
+    return { data, loading, refetch: fetchData };
 }
 
 /**

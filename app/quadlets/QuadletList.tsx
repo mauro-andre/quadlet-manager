@@ -4,6 +4,7 @@ import { useLoader } from "velojs/hooks";
 import type { QuadletListItem } from "../modules/quadlet/quadlet.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { toast } from "../components/toast.js";
 import * as QuadletEdit from "./QuadletEdit.js";
 import * as QuadletNew from "./QuadletNew.js";
 import * as css from "./QuadletList.css.js";
@@ -68,13 +69,16 @@ export const action_delete = async ({
 };
 
 export const Component = () => {
-    const { data, loading } = useLoader<QuadletListData>();
+    const { data, loading, refetch } = useLoader<QuadletListData>();
 
     if (loading.value) return <div>Loading...</div>;
 
     const quadlets = data.value?.quadlets ?? [];
 
-    const reload = () => window.location.reload();
+    const run = (action: Promise<unknown>, msg: string) =>
+        action
+            .then(() => { toast(msg); refetch(); })
+            .catch(() => toast("Action failed", "error"));
 
     return (
         <div class={css.page}>
@@ -141,30 +145,18 @@ export const Component = () => {
                                                             <ActionButton
                                                                 label="Stop"
                                                                 onClick={() =>
-                                                                    action_stop(
-                                                                        {
-                                                                            body: {
-                                                                                serviceName:
-                                                                                    q.serviceName,
-                                                                            },
-                                                                        }
-                                                                    ).then(
-                                                                        reload
+                                                                    run(
+                                                                        action_stop({ body: { serviceName: q.serviceName } }),
+                                                                        `${q.filename} stopped`
                                                                     )
                                                                 }
                                                             />
                                                             <ActionButton
                                                                 label="Restart"
                                                                 onClick={() =>
-                                                                    action_restart(
-                                                                        {
-                                                                            body: {
-                                                                                serviceName:
-                                                                                    q.serviceName,
-                                                                            },
-                                                                        }
-                                                                    ).then(
-                                                                        reload
+                                                                    run(
+                                                                        action_restart({ body: { serviceName: q.serviceName } }),
+                                                                        `${q.filename} restarted`
                                                                     )
                                                                 }
                                                             />
@@ -174,15 +166,9 @@ export const Component = () => {
                                                             label="Start"
                                                             variant="primary"
                                                             onClick={() =>
-                                                                action_start(
-                                                                    {
-                                                                        body: {
-                                                                            serviceName:
-                                                                                q.serviceName,
-                                                                        },
-                                                                    }
-                                                                ).then(
-                                                                    reload
+                                                                run(
+                                                                    action_start({ body: { serviceName: q.serviceName } }),
+                                                                    `${q.filename} started`
                                                                 )
                                                             }
                                                         />
@@ -191,15 +177,9 @@ export const Component = () => {
                                                         label="Delete"
                                                         variant="danger"
                                                         onClick={() =>
-                                                            action_delete(
-                                                                {
-                                                                    body: {
-                                                                        filename:
-                                                                            q.filename,
-                                                                    },
-                                                                }
-                                                            ).then(
-                                                                reload
+                                                            run(
+                                                                action_delete({ body: { filename: q.filename } }),
+                                                                `${q.filename} deleted`
                                                             )
                                                         }
                                                     />

@@ -4,6 +4,7 @@ import { useNavigate } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { CodeEditor } from "../components/CodeEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { toast } from "../components/toast.js";
 import * as QuadletList from "./QuadletList.js";
 import * as QuadletEdit from "./QuadletEdit.js";
 import * as css from "./QuadletNew.css.js";
@@ -51,8 +52,13 @@ export const Component = () => {
 
     const handleCreate = async () => {
         const filename = `${name.value}.${type.value}`;
-        await action_create({ body: { filename, content: content.value } });
-        navigate(`/quadlets/${filename}`);
+        try {
+            await action_create({ body: { filename, content: content.value } });
+            toast("Quadlet created");
+            navigate(`/quadlets/${filename}`);
+        } catch {
+            toast("Failed to create quadlet", "error");
+        }
     };
 
     return (

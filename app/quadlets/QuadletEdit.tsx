@@ -8,6 +8,7 @@ import { StatusBadge } from "../components/StatusBadge.js";
 import { CodeEditor } from "../components/CodeEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
+import { toast } from "../components/toast.js";
 import * as QuadletList from "./QuadletList.js";
 import * as css from "./QuadletEdit.css.js";
 
@@ -75,7 +76,7 @@ export const action_restart = async ({
 
 export const Component = () => {
     const params = useParams<{ name: string }>();
-    const { data, loading } = useLoader<QuadletEditData>([params.name]);
+    const { data, loading, refetch } = useLoader<QuadletEditData>([params.name]);
     const content = useSignal("");
 
     useEffect(() => {
@@ -89,7 +90,11 @@ export const Component = () => {
 
     const { quadlet, activeState } = data.value;
     const isActive = activeState === "active";
-    const reload = () => window.location.reload();
+
+    const run = (action: Promise<unknown>, msg: string) =>
+        action
+            .then(() => { toast(msg); refetch(); })
+            .catch(() => toast("Action failed", "error"));
 
     return (
         <div class={css.page}>
@@ -106,23 +111,19 @@ export const Component = () => {
                                 <ActionButton
                                     label="Stop"
                                     onClick={() =>
-                                        action_stop({
-                                            body: {
-                                                serviceName:
-                                                    quadlet.serviceName,
-                                            },
-                                        }).then(reload)
+                                        run(
+                                            action_stop({ body: { serviceName: quadlet.serviceName } }),
+                                            "Service stopped"
+                                        )
                                     }
                                 />
                                 <ActionButton
                                     label="Restart"
                                     onClick={() =>
-                                        action_restart({
-                                            body: {
-                                                serviceName:
-                                                    quadlet.serviceName,
-                                            },
-                                        }).then(reload)
+                                        run(
+                                            action_restart({ body: { serviceName: quadlet.serviceName } }),
+                                            "Service restarted"
+                                        )
                                     }
                                 />
                             </>
@@ -131,12 +132,10 @@ export const Component = () => {
                                 label="Start"
                                 variant="primary"
                                 onClick={() =>
-                                    action_start({
-                                        body: {
-                                            serviceName:
-                                                quadlet.serviceName,
-                                        },
-                                    }).then(reload)
+                                    run(
+                                        action_start({ body: { serviceName: quadlet.serviceName } }),
+                                        "Service started"
+                                    )
                                 }
                             />
                         )}
@@ -144,12 +143,10 @@ export const Component = () => {
                             label="Save"
                             variant="primary"
                             onClick={() =>
-                                action_save({
-                                    body: {
-                                        filename: quadlet.filename,
-                                        content: content.value,
-                                    },
-                                })
+                                run(
+                                    action_save({ body: { filename: quadlet.filename, content: content.value } }),
+                                    "Quadlet saved"
+                                )
                             }
                         />
                     </div>
