@@ -42,12 +42,14 @@ export function LogStream({ url, title = "Logs" }: LogStreamProps) {
     return (
         <div class={css.wrapper}>
             <div class={css.header}>
-                <span class={css.title}>{title}</span>
-                <span class={css.indicator}>
-                    <span
-                        class={`${css.dot} ${connected.value ? css.dotConnected : ""}`}
-                    />
-                    {connected.value ? "Live" : "Disconnected"}
+                <span class={css.title}>
+                    {title}
+                    <span class={css.indicator}>
+                        <span
+                            class={`${css.dot} ${connected.value ? css.dotConnected : ""}`}
+                        />
+                        {connected.value ? "Live" : "Disconnected"}
+                    </span>
                 </span>
             </div>
             <pre class={css.logs} ref={preRef}>

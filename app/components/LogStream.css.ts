@@ -1,5 +1,11 @@
-import { style } from "@vanilla-extract/css";
+import { style, keyframes } from "@vanilla-extract/css";
 import { vars } from "../styles/theme.css.js";
+
+const pulse = keyframes({
+    "0%": { boxShadow: `0 0 0 0 rgba(34, 197, 94, 0.6)` },
+    "70%": { boxShadow: `0 0 0 6px rgba(34, 197, 94, 0)` },
+    "100%": { boxShadow: `0 0 0 0 rgba(34, 197, 94, 0)` },
+});
 
 export const wrapper = style({
     backgroundColor: vars.color.bgSurface,
@@ -9,14 +15,14 @@ export const wrapper = style({
 });
 
 export const header = style({
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "space-between",
     padding: `${vars.space.sm} ${vars.space.md}`,
     borderBottom: `1px solid ${vars.color.border}`,
 });
 
 export const title = style({
+    display: "flex",
+    alignItems: "center",
+    gap: vars.space.sm,
     fontSize: vars.fontSize.sm,
     fontWeight: 600,
     textTransform: "uppercase",
@@ -25,11 +31,13 @@ export const title = style({
 });
 
 export const indicator = style({
-    display: "flex",
+    display: "inline-flex",
     alignItems: "center",
     gap: vars.space.xs,
-    fontSize: vars.fontSize.sm,
-    color: vars.color.textMuted,
+    fontSize: vars.fontSize.xs,
+    fontWeight: 400,
+    textTransform: "none",
+    letterSpacing: "0",
 });
 
 export const dot = style({
@@ -41,6 +49,7 @@ export const dot = style({
 
 export const dotConnected = style({
     backgroundColor: vars.color.success,
+    animation: `${pulse} 2s ease-out infinite`,
 });
 
 export const logs = style({
