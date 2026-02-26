@@ -28,6 +28,16 @@ export interface StartServerOptions {
 }
 
 // ============================================
+// ADD ROUTES - Permite registrar rotas custom
+// ============================================
+
+const pendingRoutes: Array<(app: Hono) => void | Promise<void>> = [];
+
+export function addRoutes(fn: (app: Hono) => void | Promise<void>): void {
+    pendingRoutes.push(fn);
+}
+
+// ============================================
 // RENDER PAGE - SSR ou JSON para navegação SPA
 // ============================================
 
@@ -253,7 +263,7 @@ const registerActionRoutes = (
 // CREATE APP - Cria app Hono com rotas
 // ============================================
 
-export const createApp = (routes: AppRoutes): Hono => {
+export const createApp = async (routes: AppRoutes): Promise<Hono> => {
     const app = new Hono();
 
     app.use(trimTrailingSlash());
@@ -262,10 +272,10 @@ export const createApp = (routes: AppRoutes): Hono => {
         app.use("*", logger());
     }
 
-    // API routes (manual)
-    app.on(["GET"], "/api/health", (c) => {
-        return c.json({ status: "ok" });
-    });
+    // Custom routes (registradas via addRoutes no server.tsx do app)
+    for (const fn of pendingRoutes) {
+        await fn(app);
+    }
 
     // Page routes (dinâmico)
     registerRoutes(app, routes);
@@ -282,7 +292,7 @@ export const createApp = (routes: AppRoutes): Hono => {
 
 export const startServer = async (options: StartServerOptions) => {
     const { routes, port = Number(process.env.SERVER_PORT) || 3000 } = options;
-    const app = createApp(routes);
+    const app = await createApp(routes);
 
     // Production: serve static files and start server
     if (process.env.NODE_ENV === "production") {
@@ -307,5 +317,5 @@ export const startServer = async (options: StartServerOptions) => {
     return app;
 };
 
-// Export default app for Vite dev server
+// Export createApp for Vite dev server
 export default createApp;
