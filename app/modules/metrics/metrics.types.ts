@@ -10,11 +10,3 @@ export interface MetricPoint {
 }
 
 export type TimeRange = "1h" | "24h" | "7d" | "30d" | "1y";
-
-export interface ContainerMetrics {
-    raw: MetricPoint[];
-    m1: MetricPoint[];
-    m5: MetricPoint[];
-    m30: MetricPoint[];
-    daily: MetricPoint[];
-}

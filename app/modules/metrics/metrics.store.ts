@@ -1,163 +1,179 @@
-import { readFile, writeFile, mkdir } from "node:fs/promises";
+import Database from "better-sqlite3";
+import { mkdirSync } from "node:fs";
 import { join, dirname } from "node:path";
-import type { MetricPoint, ContainerMetrics, TimeRange } from "./metrics.types.js";
-
-// Retention limits
-const MAX_RAW = 360;       // 10s × 360 = 1 hour
-const MAX_M1 = 1440;       // 1min × 1440 = 24 hours
-const MAX_M5 = 2016;       // 5min × 2016 = 7 days
-const MAX_M30 = 4320;      // 30min × 4320 = 90 days
-const MAX_DAILY = 365;     // 1day × 365 = 1 year
-
-// Rollup intervals in seconds
-const INTERVAL_M1 = 60;
-const INTERVAL_M5 = 300;
-const INTERVAL_M30 = 1800;
-const INTERVAL_DAILY = 86400;
+import type { MetricPoint, TimeRange } from "./metrics.types.js";
 
 type Listener = (containerId: string, point: MetricPoint) => void;
 
-function average(points: MetricPoint[]): MetricPoint {
-    const len = points.length;
-    if (len === 0) throw new Error("Cannot average empty array");
-    if (len === 1) return points[0]!;
+// Layer config: name, interval (seconds), retention (seconds)
+const LAYERS = [
+    { name: "raw",   interval: 10,    retention: 3600 },      // 10s, keep 1h
+    { name: "m1",    interval: 60,    retention: 86400 },      // 1min, keep 24h
+    { name: "m5",    interval: 300,   retention: 604800 },     // 5min, keep 7d
+    { name: "m30",   interval: 1800,  retention: 7776000 },    // 30min, keep 90d
+    { name: "daily", interval: 86400, retention: 31536000 },   // 1day, keep 1y
+] as const;
 
-    const sum = points.reduce(
-        (acc, p) => ({
-            ts: 0,
-            cpu: acc.cpu + p.cpu,
-            mem: acc.mem + p.mem,
-            memLimit: p.memLimit,
-            netIn: acc.netIn + p.netIn,
-            netOut: acc.netOut + p.netOut,
-            blockIn: acc.blockIn + p.blockIn,
-            blockOut: acc.blockOut + p.blockOut,
-        }),
-        { ts: 0, cpu: 0, mem: 0, memLimit: 0, netIn: 0, netOut: 0, blockIn: 0, blockOut: 0 }
-    );
+type LayerName = (typeof LAYERS)[number]["name"];
 
-    return {
-        ts: points[len - 1]!.ts,
-        cpu: sum.cpu / len,
-        mem: sum.mem / len,
-        memLimit: sum.memLimit,
-        netIn: sum.netIn,
-        netOut: sum.netOut,
-        blockIn: sum.blockIn,
-        blockOut: sum.blockOut,
-    };
-}
-
-function rollupLayer(
-    source: MetricPoint[],
-    target: MetricPoint[],
-    interval: number,
-    maxTarget: number,
-): void {
-    if (source.length === 0) return;
-
-    const lastTargetTs = target.length > 0 ? target[target.length - 1]!.ts : 0;
-    const cutoff = lastTargetTs + interval;
-
-    // Find points in source that belong to the next bucket
-    const bucket: MetricPoint[] = [];
-    for (const p of source) {
-        if (p.ts >= cutoff) {
-            if (bucket.length > 0) {
-                target.push(average(bucket));
-                bucket.length = 0;
-            }
-            bucket.push(p);
-        } else if (p.ts > lastTargetTs) {
-            bucket.push(p);
-        }
-    }
-
-    // Don't push the last incomplete bucket — wait for more data
-
-    // Prune
-    while (target.length > maxTarget) {
-        target.shift();
-    }
-}
+const RANGE_TO_LAYER: Record<TimeRange, LayerName> = {
+    "1h":  "raw",
+    "24h": "m1",
+    "7d":  "m5",
+    "30d": "m30",
+    "1y":  "daily",
+};
 
 export class MetricsStore {
-    private data = new Map<string, ContainerMetrics>();
+    private db: Database.Database;
     private listeners: Listener[] = [];
-    private filePath: string;
-    private lastSave = 0;
-    private lastRollup: Record<string, number> = {};
+    private insertStmt: Database.Statement;
+    private lastRollup = 0;
 
     constructor(dataDir?: string) {
         const dir = dataDir ?? join(process.cwd(), ".data");
-        this.filePath = join(dir, "metrics.json");
+        mkdirSync(dir, { recursive: true });
+
+        const dbPath = join(dir, "metrics.db");
+        this.db = new Database(dbPath);
+
+        this.db.pragma("journal_mode = WAL");
+        this.db.pragma("synchronous = NORMAL");
+
+        this.createTables();
+        this.insertStmt = this.db.prepare(`
+            INSERT INTO metrics (container_id, layer, ts, cpu, mem, mem_limit, net_in, net_out, block_in, block_out)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `);
     }
 
-    private getOrCreate(containerId: string): ContainerMetrics {
-        let metrics = this.data.get(containerId);
-        if (!metrics) {
-            metrics = { raw: [], m1: [], m5: [], m30: [], daily: [] };
-            this.data.set(containerId, metrics);
-        }
-        return metrics;
-    }
-
-    /** Resolve a short ID prefix to the full key in the map */
-    private resolveId(id: string): string | undefined {
-        if (this.data.has(id)) return id;
-        for (const key of this.data.keys()) {
-            if (key.startsWith(id)) return key;
-        }
-        return undefined;
+    private createTables(): void {
+        this.db.exec(`
+            CREATE TABLE IF NOT EXISTS metrics (
+                container_id TEXT NOT NULL,
+                layer        TEXT NOT NULL,
+                ts           INTEGER NOT NULL,
+                cpu          REAL NOT NULL,
+                mem          REAL NOT NULL,
+                mem_limit    REAL NOT NULL,
+                net_in       REAL NOT NULL,
+                net_out      REAL NOT NULL,
+                block_in     REAL NOT NULL,
+                block_out    REAL NOT NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_metrics_lookup
+                ON metrics (container_id, layer, ts);
+        `);
     }
 
     push(containerId: string, point: MetricPoint): void {
-        const metrics = this.getOrCreate(containerId);
-        metrics.raw.push(point);
+        this.insertStmt.run(
+            containerId, "raw", point.ts,
+            point.cpu, point.mem, point.memLimit,
+            point.netIn, point.netOut, point.blockIn, point.blockOut,
+        );
 
-        // Prune raw
-        while (metrics.raw.length > MAX_RAW) {
-            metrics.raw.shift();
-        }
-
-        // Run rollups based on elapsed time
+        // Rollup + prune every 60s
         const now = point.ts;
-        const key = containerId;
-        const last = this.lastRollup[key] ?? 0;
-
-        if (now - last >= INTERVAL_M1) {
-            rollupLayer(metrics.raw, metrics.m1, INTERVAL_M1, MAX_M1);
-            rollupLayer(metrics.m1, metrics.m5, INTERVAL_M5, MAX_M5);
-            rollupLayer(metrics.m5, metrics.m30, INTERVAL_M30, MAX_M30);
-            rollupLayer(metrics.m30, metrics.daily, INTERVAL_DAILY, MAX_DAILY);
-            this.lastRollup[key] = now;
+        if (now - this.lastRollup >= 60) {
+            this.rollup();
+            this.prune(now);
+            this.lastRollup = now;
         }
 
-        // Notify live listeners
         for (const fn of this.listeners) {
             fn(containerId, point);
         }
     }
 
-    query(containerId: string, range: TimeRange): MetricPoint[] {
-        const fullId = this.resolveId(containerId);
-        const metrics = fullId ? this.data.get(fullId) : undefined;
-        if (!metrics) return [];
+    private rollup(): void {
+        const rollupFn = this.db.transaction(() => {
+            for (let i = 0; i < LAYERS.length - 1; i++) {
+                const source = LAYERS[i]!;
+                const target = LAYERS[i + 1]!;
 
-        switch (range) {
-            case "1h":
-                return metrics.raw;
-            case "24h":
-                return metrics.m1;
-            case "7d":
-                return metrics.m5;
-            case "30d":
-                return metrics.m30;
-            case "1y":
-                return metrics.daily;
-            default:
-                return metrics.raw;
-        }
+                // Find source rows not yet aggregated into target
+                const rows = this.db.prepare(`
+                    SELECT container_id,
+                           (ts / ?) * ? AS bucket_ts,
+                           AVG(cpu) AS cpu, AVG(mem) AS mem,
+                           MAX(mem_limit) AS mem_limit,
+                           AVG(net_in) AS net_in, AVG(net_out) AS net_out,
+                           AVG(block_in) AS block_in, AVG(block_out) AS block_out,
+                           COUNT(*) AS cnt
+                    FROM metrics
+                    WHERE layer = ?
+                      AND ts > COALESCE(
+                          (SELECT MAX(ts) FROM metrics WHERE layer = ? AND container_id = metrics.container_id),
+                          0
+                      )
+                    GROUP BY container_id, bucket_ts
+                    HAVING cnt >= ?
+                `).all(
+                    target.interval, target.interval,
+                    source.name,
+                    target.name,
+                    Math.floor(target.interval / source.interval * 0.8), // 80% threshold
+                ) as Array<{
+                    container_id: string; bucket_ts: number;
+                    cpu: number; mem: number; mem_limit: number;
+                    net_in: number; net_out: number; block_in: number; block_out: number;
+                }>;
+
+                for (const r of rows) {
+                    this.insertStmt.run(
+                        r.container_id, target.name, r.bucket_ts,
+                        r.cpu, r.mem, r.mem_limit,
+                        r.net_in, r.net_out, r.block_in, r.block_out,
+                    );
+                }
+            }
+        });
+
+        rollupFn();
+    }
+
+    private prune(now: number): void {
+        const stmt = this.db.prepare(
+            `DELETE FROM metrics WHERE layer = ? AND ts < ?`
+        );
+
+        const pruneFn = this.db.transaction(() => {
+            for (const layer of LAYERS) {
+                stmt.run(layer.name, now - layer.retention);
+            }
+        });
+
+        pruneFn();
+    }
+
+    query(containerId: string, range: TimeRange): MetricPoint[] {
+        const layer = RANGE_TO_LAYER[range];
+        const retention = LAYERS.find((l) => l.name === layer)!.retention;
+        const since = Math.floor(Date.now() / 1000) - retention;
+
+        const rows = this.db.prepare(`
+            SELECT ts, cpu, mem, mem_limit, net_in, net_out, block_in, block_out
+            FROM metrics
+            WHERE container_id = ? OR container_id LIKE ?
+            AND layer = ?
+            AND ts > ?
+            ORDER BY ts ASC
+        `).all(containerId, `${containerId}%`, layer, since) as Array<{
+            ts: number; cpu: number; mem: number; mem_limit: number;
+            net_in: number; net_out: number; block_in: number; block_out: number;
+        }>;
+
+        return rows.map((r) => ({
+            ts: r.ts,
+            cpu: r.cpu,
+            mem: r.mem,
+            memLimit: r.mem_limit,
+            netIn: r.net_in,
+            netOut: r.net_out,
+            blockIn: r.block_in,
+            blockOut: r.block_out,
+        }));
     }
 
     subscribe(fn: Listener): () => void {
@@ -167,39 +183,29 @@ export class MetricsStore {
         };
     }
 
-    async save(): Promise<void> {
-        const now = Date.now();
-        if (now - this.lastSave < 60_000) return; // Max once per minute
-        this.lastSave = now;
+    /** Remove metrics for containers that no longer exist */
+    purgeContainers(activeIds: Set<string>): number {
+        const storedIds = this.db.prepare(
+            `SELECT DISTINCT container_id FROM metrics`
+        ).pluck().all() as string[];
 
-        const serialized: Record<string, ContainerMetrics> = {};
-        for (const [id, metrics] of this.data) {
-            serialized[id] = metrics;
-        }
+        const toDelete = storedIds.filter((id) => !activeIds.has(id));
+        if (toDelete.length === 0) return 0;
 
-        try {
-            await mkdir(dirname(this.filePath), { recursive: true });
-            await writeFile(this.filePath, JSON.stringify(serialized), "utf-8");
-        } catch (err) {
-            console.error("Failed to save metrics:", err);
-        }
-    }
-
-    async load(): Promise<void> {
-        try {
-            const content = await readFile(this.filePath, "utf-8");
-            const parsed = JSON.parse(content) as Record<string, ContainerMetrics>;
-            for (const [id, metrics] of Object.entries(parsed)) {
-                this.data.set(id, metrics);
+        const deleteFn = this.db.transaction(() => {
+            const stmt = this.db.prepare(
+                `DELETE FROM metrics WHERE container_id = ?`
+            );
+            for (const id of toDelete) {
+                stmt.run(id);
             }
-            console.log(`Loaded metrics for ${this.data.size} containers`);
-        } catch {
-            // No file yet or parse error — start fresh
-        }
+        });
+
+        deleteFn();
+        return toDelete.length;
     }
 
-    forceSave(): Promise<void> {
-        this.lastSave = 0;
-        return this.save();
+    close(): void {
+        this.db.close();
     }
 }

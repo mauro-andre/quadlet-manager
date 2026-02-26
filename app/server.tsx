@@ -5,9 +5,7 @@ import { startCollector } from "./modules/metrics/metrics.collector.js";
 import type { TimeRange } from "./modules/metrics/metrics.types.js";
 
 const store = new MetricsStore();
-store.load().then(() => {
-    startCollector(store);
-});
+startCollector(store);
 
 addRoutes((app: Hono) => {
     registerLogStreams(app);

@@ -52,8 +52,11 @@ function sumNetwork(stats: PodmanStats): { rx: number; tx: number } {
     return { rx, tx };
 }
 
+const PURGE_INTERVAL = 3600; // 1 hour
+
 export function startCollector(store: MetricsStore): void {
     let running = true;
+    let lastPurge = 0;
     const prevCpu = new Map<string, CpuSnapshot>();
 
     const poll = async () => {
@@ -66,6 +69,17 @@ export function startCollector(store: MetricsStore): void {
 
             const containers = await listContainers(false); // running only
             const now = Math.floor(Date.now() / 1000);
+
+            // Purge metrics for removed containers every hour
+            if (now - lastPurge >= PURGE_INTERVAL) {
+                const allContainers = await listContainers(true);
+                const activeIds = new Set(allContainers.map((c) => c.Id));
+                const removed = store.purgeContainers(activeIds);
+                if (removed > 0) {
+                    console.log(`Purged metrics for ${removed} removed containers`);
+                }
+                lastPurge = now;
+            }
 
             await Promise.all(
                 containers.map(async (c) => {
@@ -98,7 +112,6 @@ export function startCollector(store: MetricsStore): void {
                 })
             );
 
-            await store.save();
         } catch {
             // Podman socket not available or other error — skip this cycle
         }
@@ -111,13 +124,6 @@ export function startCollector(store: MetricsStore): void {
     console.log("Metrics collector started (10s interval)");
     poll();
 
-    // Cleanup on process exit
-    process.on("SIGTERM", () => {
-        running = false;
-        store.forceSave();
-    });
-    process.on("SIGINT", () => {
-        running = false;
-        store.forceSave();
-    });
+    process.on("SIGTERM", () => { running = false; store.close(); });
+    process.on("SIGINT", () => { running = false; store.close(); });
 }
