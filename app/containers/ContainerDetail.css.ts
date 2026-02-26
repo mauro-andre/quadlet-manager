@@ -62,16 +62,6 @@ export const infoValue = style({
     wordBreak: "break-all",
 });
 
-export const logs = style({
-    padding: vars.space.md,
-    fontSize: vars.fontSize.sm,
-    lineHeight: 1.6,
-    whiteSpace: "pre-wrap",
-    fontFamily: "monospace",
-    maxHeight: "500px",
-    overflow: "auto",
-    color: vars.color.text,
-});
 
 export const backLink = style({
     color: vars.color.primary,

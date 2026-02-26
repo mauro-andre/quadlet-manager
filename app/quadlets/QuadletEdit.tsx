@@ -8,33 +8,29 @@ import { AppShell } from "../components/AppShell.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { CodeEditor } from "../components/CodeEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { LogStream } from "../components/LogStream.js";
 import * as QuadletList from "./QuadletList.js";
 import * as css from "./QuadletEdit.css.js";
 
 interface QuadletEditData {
     quadlet: QuadletFile;
     activeState: string;
-    logs: string;
 }
 
 export const loader = async ({ params }: LoaderArgs) => {
     const { getQuadlet } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
-    const { getServiceStatus, getServiceLogs } = await import(
+    const { getServiceStatus } = await import(
         "../modules/systemd/systemd.service.js"
     );
 
     const quadlet = await getQuadlet(params.name!);
-    const [status, logs] = await Promise.all([
-        getServiceStatus(quadlet.serviceName),
-        getServiceLogs(quadlet.serviceName, 100),
-    ]);
+    const status = await getServiceStatus(quadlet.serviceName);
 
     return {
         quadlet,
         activeState: status.activeState,
-        logs,
     } satisfies QuadletEditData;
 };
 
@@ -92,7 +88,7 @@ export const Component = () => {
     if (loading.value) return <AppShell>Loading...</AppShell>;
     if (!data.value) return <AppShell>Quadlet not found</AppShell>;
 
-    const { quadlet, activeState, logs } = data.value;
+    const { quadlet, activeState } = data.value;
     const isActive = activeState === "active";
     const reload = () => window.location.reload();
 
@@ -163,12 +159,10 @@ export const Component = () => {
 
                 <CodeEditor value={content} />
 
-                <div class={css.section}>
-                    <div class={css.sectionTitle}>Service Logs</div>
-                    <pre class={css.logs}>
-                        {logs || "No logs available"}
-                    </pre>
-                </div>
+                <LogStream
+                    url={`/api/logs/service/${encodeURIComponent(quadlet.serviceName)}`}
+                    title="Service Logs"
+                />
             </div>
         </AppShell>
     );

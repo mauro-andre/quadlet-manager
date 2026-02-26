@@ -5,12 +5,12 @@ import type { PodmanContainerInspect } from "../modules/podman/podman.types.js";
 import { AppShell } from "../components/AppShell.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { LogStream } from "../components/LogStream.js";
 import * as ContainerList from "./ContainerList.js";
 import * as css from "./ContainerDetail.css.js";
 
 interface ContainerDetailData {
     container: PodmanContainerInspect;
-    logs: string;
     serviceName: string;
 }
 
@@ -18,17 +18,13 @@ export const loader = async ({ params }: LoaderArgs) => {
     const { inspectContainer } = await import(
         "../modules/podman/podman.client.js"
     );
-    const { getServiceLogs } = await import(
-        "../modules/systemd/systemd.service.js"
-    );
 
     const container = await inspectContainer(params.id!);
     const serviceName =
         container.Config?.Labels?.["PODMAN_SYSTEMD_UNIT"] ??
         `${container.Name.replace(/^\//, "")}.service`;
-    const logs = await getServiceLogs(serviceName, 100);
 
-    return { container, logs, serviceName } satisfies ContainerDetailData;
+    return { container, serviceName } satisfies ContainerDetailData;
 };
 
 export const action_start = async ({
@@ -68,7 +64,7 @@ export const Component = () => {
     if (loading.value) return <AppShell>Loading...</AppShell>;
     if (!data.value) return <AppShell>Container not found</AppShell>;
 
-    const { container, logs, serviceName } = data.value;
+    const { container, serviceName } = data.value;
     const name = container.Name.replace(/^\//, "");
     const state = container.State;
 
@@ -140,12 +136,10 @@ export const Component = () => {
                     </div>
                 </div>
 
-                <div class={css.section}>
-                    <div class={css.sectionTitle}>Logs</div>
-                    <pre class={css.logs}>
-                        {logs || "No logs available"}
-                    </pre>
-                </div>
+                <LogStream
+                    url={`/api/logs/container/${encodeURIComponent(name)}`}
+                    title="Container Logs"
+                />
             </div>
         </AppShell>
     );
