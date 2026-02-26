@@ -70,3 +70,26 @@ export const backLink = style({
         textDecoration: "underline",
     },
 });
+
+export const metricsSection = style({
+    display: "flex",
+    flexDirection: "column",
+    gap: vars.space.md,
+});
+
+export const metricsHeader = style({
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+});
+
+export const metricsGrid = style({
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: vars.space.md,
+    "@media": {
+        "(max-width: 900px)": {
+            gridTemplateColumns: "1fr",
+        },
+    },
+});

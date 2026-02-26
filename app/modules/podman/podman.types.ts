@@ -49,3 +49,40 @@ export interface PodmanContainerInspect {
     };
     Mounts: PodmanMount[];
 }
+
+export interface PodmanStats {
+    cpu_stats: {
+        cpu_usage: {
+            total_usage: number;
+            usage_in_kernelmode: number;
+            usage_in_usermode: number;
+        };
+        system_cpu_usage: number;
+        online_cpus: number;
+    };
+    precpu_stats: {
+        cpu_usage: {
+            total_usage: number;
+        };
+        system_cpu_usage?: number;
+    };
+    memory_stats: {
+        usage: number;
+        limit: number;
+    };
+    blkio_stats: {
+        io_service_bytes_recursive: Array<{
+            major: number;
+            minor: number;
+            op: string;
+            value: number;
+        }> | null;
+    };
+    networks?: Record<string, {
+        rx_bytes: number;
+        tx_bytes: number;
+    }>;
+    pids_stats: {
+        current: number;
+    };
+}

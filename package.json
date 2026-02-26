@@ -21,6 +21,7 @@
         "hono": "^4.12.3",
         "preact": "^10.28.4",
         "preact-render-to-string": "^6.6.6",
+        "uplot": "^1.6.32",
         "velojs": "file:velojs",
         "vite": "^7.3.1",
         "wouter-preact": "^3.9.0"

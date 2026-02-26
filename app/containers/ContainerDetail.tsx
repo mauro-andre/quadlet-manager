@@ -1,10 +1,15 @@
 import type { LoaderArgs, ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader, useParams } from "velojs/hooks";
+import { useSignal } from "@preact/signals";
+import { useEffect } from "preact/hooks";
 import type { PodmanContainerInspect } from "../modules/podman/podman.types.js";
+import type { MetricPoint, TimeRange } from "../modules/metrics/metrics.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
+import { MetricsChart } from "../components/MetricsChart.js";
+import { TimeRangeSelector } from "../components/TimeRangeSelector.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import * as ContainerList from "./ContainerList.js";
@@ -61,6 +66,31 @@ export const action_restart = async ({
 export const Component = () => {
     const params = useParams<{ id: string }>();
     const { data, loading, refetch } = useLoader<ContainerDetailData>([params.id]);
+    const metrics = useSignal<MetricPoint[]>([]);
+    const timeRange = useSignal<TimeRange>("1h");
+
+    // Fetch historical metrics when range changes
+    useEffect(() => {
+        if (typeof window === "undefined" || !params.id) return;
+
+        fetch(`/api/metrics/${params.id}?range=${timeRange.value}`)
+            .then((res) => res.json())
+            .then((points: MetricPoint[]) => { metrics.value = points; })
+            .catch(() => {});
+    }, [params.id, timeRange.value]);
+
+    // Live metrics via SSE
+    useEffect(() => {
+        if (typeof window === "undefined" || !params.id) return;
+
+        const es = new EventSource(`/api/metrics/${params.id}/live`);
+        es.onmessage = (e) => {
+            const point: MetricPoint = JSON.parse(e.data);
+            metrics.value = [...metrics.value, point];
+        };
+
+        return () => es.close();
+    }, [params.id]);
 
     if (loading.value) return <div>Loading...</div>;
     if (!data.value) return <div>Container not found</div>;
@@ -145,6 +175,28 @@ export const Component = () => {
                         </span>
                         <span class={css.infoLabel}>Service</span>
                         <span class={css.infoValue}>{serviceName}</span>
+                    </div>
+                </div>
+
+                <div class={css.metricsSection}>
+                    <div class={css.metricsHeader}>
+                        <span class={css.sectionTitle}>Metrics</span>
+                        <TimeRangeSelector
+                            value={timeRange.value}
+                            onChange={(r) => { timeRange.value = r; }}
+                        />
+                    </div>
+                    <div class={css.metricsGrid}>
+                        <MetricsChart
+                            data={metrics.value}
+                            type="cpu"
+                            title="CPU Usage"
+                        />
+                        <MetricsChart
+                            data={metrics.value}
+                            type="memory"
+                            title="Memory Usage"
+                        />
                     </div>
                 </div>
 
