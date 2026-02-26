@@ -175,6 +175,39 @@ export const Component = () => {
                         </span>
                         <span class={css.infoLabel}>Service</span>
                         <span class={css.infoValue}>{serviceName}</span>
+
+                        <span class={css.infoLabel}>Ports</span>
+                        <span class={css.infoValue}>
+                            {container.HostConfig?.PortBindings
+                                ? Object.entries(container.HostConfig.PortBindings).map(
+                                    ([containerPort, bindings]) =>
+                                        bindings?.map((b) =>
+                                            `${b.HostPort}:${containerPort}`
+                                        ).join(", ")
+                                ).join(", ") || "-"
+                                : "-"}
+                        </span>
+
+                        <span class={css.infoLabel}>Networks</span>
+                        <span class={css.infoValue}>
+                            {Object.entries(container.NetworkSettings?.Networks ?? {}).map(
+                                ([net, cfg]) => (
+                                    <div key={net}>{net} — {cfg.IPAddress || "no IP"}</div>
+                                )
+                            )}
+                            {Object.keys(container.NetworkSettings?.Networks ?? {}).length === 0 && "-"}
+                        </span>
+
+                        <span class={css.infoLabel}>Mounts</span>
+                        <span class={css.infoValue}>
+                            {container.Mounts?.length > 0
+                                ? container.Mounts.map((m) => (
+                                    <div key={m.Destination}>
+                                        {m.Source} → {m.Destination} ({m.RW ? "rw" : "ro"})
+                                    </div>
+                                ))
+                                : "-"}
+                        </span>
                     </div>
                 </div>
 

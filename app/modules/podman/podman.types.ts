@@ -44,6 +44,12 @@ export interface PodmanContainerInspect {
         Env: string[];
         Labels: Record<string, string>;
     };
+    HostConfig: {
+        PortBindings: Record<string, Array<{
+            HostIp: string;
+            HostPort: string;
+        }>> | null;
+    };
     NetworkSettings: {
         Networks: Record<string, { IPAddress: string }>;
     };
