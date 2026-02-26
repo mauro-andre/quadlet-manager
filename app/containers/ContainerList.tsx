@@ -113,14 +113,16 @@ export const Component = () => {
                                                 />
                                             </td>
                                             <td class={css.td}>
-                                                {isRunning && m ? `${m.cpu.toFixed(1)}%` : "-"}
+                                                {isRunning && m ? `${m.cpu.toFixed(2)}%` : "-"}
                                             </td>
                                             <td class={css.td}>
-                                                {isRunning && m ? formatBytes(m.mem) : "-"}
+                                                {isRunning && m
+                                                    ? `${formatBytes(m.mem)} / ${m.memLimit > 0 ? ((m.mem / m.memLimit) * 100).toFixed(0) : 0}%`
+                                                    : "-"}
                                             </td>
                                             <td class={css.td}>
                                                 {new Date(
-                                                    c.Created * 1000
+                                                    c.Created
                                                 ).toLocaleString()}
                                             </td>
                                         </tr>

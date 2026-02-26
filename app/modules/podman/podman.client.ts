@@ -1,6 +1,6 @@
 import http from "node:http";
 import { join } from "node:path";
-import type { PodmanContainer, PodmanContainerInspect, PodmanStats } from "./podman.types.js";
+import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse } from "./podman.types.js";
 
 function getDefaultSocket(): string {
     // Rootless: $XDG_RUNTIME_DIR/podman/podman.sock
@@ -87,10 +87,9 @@ export async function inspectContainer(
     );
 }
 
-export async function getContainerStats(
-    id: string
-): Promise<PodmanStats> {
-    return podmanRequest<PodmanStats>(
-        `/containers/${encodeURIComponent(id)}/stats?stream=false`
+export async function getAllContainerStats(): Promise<PodmanStats[]> {
+    const res = await podmanRequest<PodmanStatsResponse>(
+        `/containers/stats?stream=false`
     );
+    return res.Stats ?? [];
 }
