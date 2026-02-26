@@ -7,7 +7,7 @@ type Listener = (containerId: string, point: MetricPoint) => void;
 
 // Layer config: name, interval (seconds), retention (seconds)
 const LAYERS = [
-    { name: "raw",   interval: 10,    retention: 3600 },      // 10s, keep 1h
+    { name: "raw",   interval: 5,     retention: 3600 },      // 5s, keep 1h
     { name: "m1",    interval: 60,    retention: 86400 },      // 1min, keep 24h
     { name: "m5",    interval: 300,   retention: 604800 },     // 5min, keep 7d
     { name: "m30",   interval: 1800,  retention: 7776000 },    // 30min, keep 90d
@@ -174,6 +174,28 @@ export class MetricsStore {
             blockIn: r.block_in,
             blockOut: r.block_out,
         }));
+    }
+
+    /** Latest raw point per container */
+    latestAll(): Record<string, MetricPoint> {
+        const rows = this.db.prepare(`
+            SELECT container_id, ts, cpu, mem, mem_limit, net_in, net_out, block_in, block_out
+            FROM metrics m1
+            WHERE layer = 'raw'
+              AND ts = (SELECT MAX(ts) FROM metrics m2 WHERE m2.container_id = m1.container_id AND m2.layer = 'raw')
+        `).all() as Array<{
+            container_id: string; ts: number; cpu: number; mem: number; mem_limit: number;
+            net_in: number; net_out: number; block_in: number; block_out: number;
+        }>;
+
+        const result: Record<string, MetricPoint> = {};
+        for (const r of rows) {
+            result[r.container_id] = {
+                ts: r.ts, cpu: r.cpu, mem: r.mem, memLimit: r.mem_limit,
+                netIn: r.net_in, netOut: r.net_out, blockIn: r.block_in, blockOut: r.block_out,
+            };
+        }
+        return result;
     }
 
     subscribe(fn: Listener): () => void {

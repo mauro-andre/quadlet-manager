@@ -13,6 +13,27 @@ addRoutes((app: Hono) => {
 });
 
 function registerMetricsEndpoints(app: Hono) {
+    // Latest metrics for all containers
+    app.get("/api/metrics/current", (c) => {
+        return c.json(store.latestAll());
+    });
+
+    // Live stream for all containers
+    app.get("/api/metrics/live", async (c) => {
+        const { streamSSE } = await import("hono/streaming");
+
+        return streamSSE(c, async (stream) => {
+            const unsubscribe = store.subscribe((containerId, point) => {
+                stream.writeSSE({
+                    data: JSON.stringify({ containerId, ...point }),
+                });
+            });
+
+            stream.onAbort(() => { unsubscribe(); });
+            await new Promise<void>(() => {});
+        });
+    });
+
     // Historical metrics
     app.get("/api/metrics/:id", (c) => {
         const id = c.req.param("id");

@@ -1,10 +1,20 @@
 import type { LoaderArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
+import { useSignal } from "@preact/signals";
+import { useEffect } from "preact/hooks";
 import type { PodmanContainer } from "../modules/podman/podman.types.js";
+import type { MetricPoint } from "../modules/metrics/metrics.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import * as ContainerDetail from "./ContainerDetail.js";
 import * as css from "./ContainerList.css.js";
+
+function formatBytes(bytes: number): string {
+    if (bytes === 0) return "-";
+    const units = ["B", "KB", "MB", "GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
 
 interface ContainerListData {
     containers: PodmanContainer[];
@@ -22,6 +32,27 @@ export const loader = async (_args: LoaderArgs) => {
 
 export const Component = () => {
     const { data, loading } = useLoader<ContainerListData>();
+    const liveMetrics = useSignal<Record<string, MetricPoint>>({});
+
+    // Fetch initial current metrics
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        fetch("/api/metrics/current")
+            .then((res) => res.json())
+            .then((data: Record<string, MetricPoint>) => { liveMetrics.value = data; })
+            .catch(() => {});
+    }, []);
+
+    // Live SSE for all containers
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        const es = new EventSource("/api/metrics/live");
+        es.onmessage = (e) => {
+            const { containerId, ...point } = JSON.parse(e.data) as MetricPoint & { containerId: string };
+            liveMetrics.value = { ...liveMetrics.value, [containerId]: point };
+        };
+        return () => es.close();
+    }, []);
 
     if (loading.value) return <div>Loading...</div>;
 
@@ -43,6 +74,8 @@ export const Component = () => {
                                     <th class={css.th}>Name</th>
                                     <th class={css.th}>Image</th>
                                     <th class={css.th}>Status</th>
+                                    <th class={css.th}>CPU</th>
+                                    <th class={css.th}>Memory</th>
                                     <th class={css.th}>Created</th>
                                 </tr>
                             </thead>
@@ -53,6 +86,8 @@ export const Component = () => {
                                             /^\//,
                                             ""
                                         ) ?? c.Id.slice(0, 12);
+                                    const m = liveMetrics.value[c.Id];
+                                    const isRunning = c.State === "running";
                                     return (
                                         <tr key={c.Id}>
                                             <td class={css.td}>
@@ -76,6 +111,12 @@ export const Component = () => {
                                                 <StatusBadge
                                                     status={c.State}
                                                 />
+                                            </td>
+                                            <td class={css.td}>
+                                                {isRunning && m ? `${m.cpu.toFixed(1)}%` : "-"}
+                                            </td>
+                                            <td class={css.td}>
+                                                {isRunning && m ? formatBytes(m.mem) : "-"}
                                             </td>
                                             <td class={css.td}>
                                                 {new Date(

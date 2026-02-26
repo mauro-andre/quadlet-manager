@@ -2,7 +2,7 @@ import type { MetricPoint } from "./metrics.types.js";
 import type { MetricsStore } from "./metrics.store.js";
 import type { PodmanStats } from "../podman/podman.types.js";
 
-const POLL_INTERVAL = 10_000; // 10 seconds
+const POLL_INTERVAL = 5_000; // 5 seconds
 
 interface CpuSnapshot {
     totalUsage: number;
@@ -121,7 +121,7 @@ export function startCollector(store: MetricsStore): void {
         }
     };
 
-    console.log("Metrics collector started (10s interval)");
+    console.log("Metrics collector started (5s interval)");
     poll();
 
     process.on("SIGTERM", () => { running = false; store.close(); });
