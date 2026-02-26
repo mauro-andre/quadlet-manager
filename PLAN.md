@@ -11,6 +11,7 @@ This plan scaffolds the MVP (v0.1): list quadlets, view container status, start/
 - Support both rootful and rootless Podman via env vars
 - UI in English
 - CSS with Vanilla Extract (type-safe, zero-runtime CSS-in-TS)
+- Dark/Light theme with localStorage persistence + inline script in `client-root.tsx` to apply theme before hydration (prevents flash of wrong theme)
 
 ---
 
@@ -96,12 +97,35 @@ All pages wrapped by `AppShell` component (sidebar nav) via the route tree.
 
 **CSS with Vanilla Extract.** Type-safe, zero-runtime CSS-in-TypeScript. Styles are written in `.css.ts` files, compiled at build time by Vite. Provides theme variables via `createTheme`/`createThemeContract`, scoped class names, and full TypeScript autocomplete. No runtime cost — outputs plain CSS.
 
+**Dark/Light theme.** Two themes defined via Vanilla Extract `createTheme` (dark + light CSS classes). Theme preference persisted in `localStorage` key `theme` (`"dark"` | `"light"`). An inline `<script>` in `client-root.tsx` reads localStorage and sets the theme class on `<html>` **before** any rendering — this prevents the flash of wrong theme (FOWT). A toggle component switches between themes at runtime and updates both the class and localStorage.
+
 ---
 
 ## Implementation Steps
 
 ### Step 1: Project config files
 Create `package.json`, `tsconfig.json`, `vite.config.ts`.
+
+`vite.config.ts` — minimal, just two plugins:
+```typescript
+import { defineConfig } from "vite";
+import { veloPlugin } from "velojs/vite";
+import { vanillaExtractPlugin } from "@vanilla-extract/vite-plugin";
+
+export default defineConfig({
+    plugins: [veloPlugin(), vanillaExtractPlugin({ identifiers: "debug" })],
+});
+```
+
+`package.json` scripts:
+```json
+{
+    "dev": "velojs dev --host",
+    "build": "velojs build",
+    "start": "NODE_ENV=production velojs start",
+    "typecheck": "tsc --noEmit"
+}
+```
 
 `package.json` dependencies:
 - `velojs` as `file:./velojs` (local)

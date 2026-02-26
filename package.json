@@ -1,0 +1,31 @@
+{
+    "name": "quadlet-manager",
+    "version": "0.1.0",
+    "type": "module",
+    "private": true,
+    "scripts": {
+        "dev": "velojs dev --host",
+        "build": "velojs build",
+        "start": "NODE_ENV=production velojs start",
+        "typecheck": "tsc --noEmit"
+    },
+    "dependencies": {
+        "@hono/node-server": "^1.19.9",
+        "@hono/vite-dev-server": "^0.24.1",
+        "@preact/preset-vite": "^2.10.3",
+        "@preact/signals": "^2.8.1",
+        "@vanilla-extract/css": "^1.18.0",
+        "@vanilla-extract/vite-plugin": "^5.1.4",
+        "hono": "^4.12.3",
+        "preact": "^10.28.4",
+        "preact-render-to-string": "^6.6.6",
+        "velojs": "file:velojs",
+        "vite": "^7.3.1",
+        "wouter-preact": "^3.9.0"
+    },
+    "devDependencies": {
+        "@types/node": "^25.3.1",
+        "tsx": "^4.21.0",
+        "typescript": "^5.9.3"
+    }
+}

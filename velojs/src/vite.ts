@@ -602,7 +602,7 @@ function collectFullPaths(
             // Se é folha (sem children) e path é "/", fullPath = parentPath (sem trailing slash)
             // Isso permite que wouter use "/" para index routes, mas servidor registra sem trailing slash
             const isLeafWithSlash = !childrenNode && nodePath === "/";
-            const effectiveFullPath = isLeafWithSlash ? parentPath : currentPath;
+            const effectiveFullPath = isLeafWithSlash ? (parentPath || "/") : currentPath;
 
             result.set(moduleName, {
                 fullPath: effectiveFullPath,
