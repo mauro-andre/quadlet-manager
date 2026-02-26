@@ -10,6 +10,7 @@ startCollector(store);
 addRoutes((app: Hono) => {
     registerLogStreams(app);
     registerMetricsEndpoints(app);
+    registerSystemEndpoints(app);
 });
 
 function registerMetricsEndpoints(app: Hono) {
@@ -120,6 +121,77 @@ function registerLogStreams(app: Hono) {
             stream.onAbort(() => { proc.kill(); });
 
             await new Promise<void>((resolve) => proc.on("close", resolve));
+        });
+    });
+}
+
+function registerSystemEndpoints(app: Hono) {
+    // System + container stats overview (for dashboard)
+    app.get("/api/system/stats", async (c) => {
+        const { getSystemCpuPercent, getSystemMemory } = await import(
+            "./modules/system/system.stats.js"
+        );
+
+        const [cpu, memory, containerMetrics] = await Promise.all([
+            getSystemCpuPercent(),
+            getSystemMemory(),
+            store.latestAll(),
+        ]);
+
+        // Sum container resource usage
+        let containersCpu = 0;
+        let containersMem = 0;
+        let containersCount = 0;
+        for (const point of Object.values(containerMetrics)) {
+            containersCpu += point.cpu;
+            containersMem += point.mem;
+            containersCount++;
+        }
+
+        return c.json({
+            system: { cpu, memUsed: memory.used, memTotal: memory.total },
+            containers: { cpu: containersCpu, mem: containersMem, count: containersCount },
+            other: { cpu: Math.max(0, cpu - containersCpu), mem: Math.max(0, memory.used - containersMem) },
+        });
+    });
+
+    // SSE live system stats
+    app.get("/api/system/stats/live", async (c) => {
+        const { streamSSE } = await import("hono/streaming");
+        const { getSystemCpuPercent, getSystemMemory } = await import(
+            "./modules/system/system.stats.js"
+        );
+
+        return streamSSE(c, async (stream) => {
+            let running = true;
+            stream.onAbort(() => { running = false; });
+
+            while (running) {
+                const [cpu, memory] = await Promise.all([
+                    getSystemCpuPercent(),
+                    getSystemMemory(),
+                ]);
+
+                const containerMetrics = store.latestAll();
+                let containersCpu = 0;
+                let containersMem = 0;
+                let containersCount = 0;
+                for (const point of Object.values(containerMetrics)) {
+                    containersCpu += point.cpu;
+                    containersMem += point.mem;
+                    containersCount++;
+                }
+
+                stream.writeSSE({
+                    data: JSON.stringify({
+                        system: { cpu, memUsed: memory.used, memTotal: memory.total },
+                        containers: { cpu: containersCpu, mem: containersMem, count: containersCount },
+                        other: { cpu: Math.max(0, cpu - containersCpu), mem: Math.max(0, memory.used - containersMem) },
+                    }),
+                });
+
+                await new Promise((r) => setTimeout(r, 5_000));
+            }
         });
     });
 }

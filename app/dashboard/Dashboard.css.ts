@@ -12,6 +12,12 @@ export const title = style({
     fontWeight: 700,
 });
 
+export const summaryGrid = style({
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
+    gap: vars.space.md,
+});
+
 export const grid = style({
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
@@ -38,4 +44,78 @@ export const cardLabel = style({
 export const cardValue = style({
     fontSize: vars.fontSize.xxl,
     fontWeight: 700,
+});
+
+export const cardSub = style({
+    fontSize: vars.fontSize.sm,
+    color: vars.color.textMuted,
+});
+
+export const resourceSection = style({
+    display: "flex",
+    flexDirection: "column",
+    gap: vars.space.md,
+});
+
+export const sectionTitle = style({
+    fontSize: vars.fontSize.lg,
+    fontWeight: 600,
+});
+
+export const resourceGrid = style({
+    display: "grid",
+    gridTemplateColumns: "repeat(3, 1fr)",
+    gap: vars.space.md,
+    "@media": {
+        "(max-width: 900px)": {
+            gridTemplateColumns: "1fr",
+        },
+    },
+});
+
+export const resourceCard = style({
+    backgroundColor: vars.color.bgSurface,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.lg,
+    padding: vars.space.lg,
+    display: "flex",
+    flexDirection: "column",
+    gap: vars.space.md,
+});
+
+export const resourceCardTitle = style({
+    fontSize: vars.fontSize.sm,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+    color: vars.color.textMuted,
+});
+
+export const resourceRow = style({
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "baseline",
+});
+
+export const resourceLabel = style({
+    fontSize: vars.fontSize.sm,
+    color: vars.color.textMuted,
+});
+
+export const resourceValue = style({
+    fontSize: vars.fontSize.lg,
+    fontWeight: 600,
+});
+
+export const progressBar = style({
+    height: "6px",
+    borderRadius: "3px",
+    backgroundColor: vars.color.border,
+    overflow: "hidden",
+});
+
+export const progressFill = style({
+    height: "100%",
+    borderRadius: "3px",
+    transition: "width 0.5s ease",
 });
