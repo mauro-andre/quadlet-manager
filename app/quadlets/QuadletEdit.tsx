@@ -9,6 +9,7 @@ import { CodeEditor } from "../components/CodeEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
 import { toast } from "../components/toast.js";
+import { confirm } from "../components/confirm.js";
 import * as QuadletList from "./QuadletList.js";
 import * as css from "./QuadletEdit.css.js";
 
@@ -110,12 +111,10 @@ export const Component = () => {
                             <>
                                 <ActionButton
                                     label="Stop"
-                                    onClick={() =>
-                                        run(
-                                            action_stop({ body: { serviceName: quadlet.serviceName } }),
-                                            "Service stopped"
-                                        )
-                                    }
+                                    onClick={async () => {
+                                        if (await confirm(`Stop ${quadlet.filename}?`, { variant: "warning", confirmLabel: "Stop" }))
+                                            run(action_stop({ body: { serviceName: quadlet.serviceName } }), "Service stopped");
+                                    }}
                                 />
                                 <ActionButton
                                     label="Restart"

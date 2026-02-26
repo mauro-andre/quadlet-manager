@@ -4,6 +4,7 @@ import { Link } from "velojs";
 import { usePathname } from "velojs/hooks";
 import { darkTheme, lightTheme } from "../styles/theme.css.js";
 import { ToastContainer } from "../components/ToastContainer.js";
+import { ConfirmDialog } from "../components/ConfirmDialog.js";
 import * as css from "./AdminLayout.css.js";
 
 function ThemeToggle() {
@@ -58,6 +59,7 @@ export const Component = ({ children }: { children?: ComponentChildren }) => {
             </aside>
             <main class={css.main}>{children}</main>
             <ToastContainer />
+            <ConfirmDialog />
         </div>
     );
 };

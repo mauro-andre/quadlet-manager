@@ -6,6 +6,7 @@ import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
 import { toast } from "../components/toast.js";
+import { confirm } from "../components/confirm.js";
 import * as ContainerList from "./ContainerList.js";
 import * as css from "./ContainerDetail.css.js";
 
@@ -96,12 +97,10 @@ export const Component = () => {
                         <ActionButton
                             label="Stop"
                             variant="danger"
-                            onClick={() =>
-                                run(
-                                    action_stop({ body: { serviceName } }),
-                                    "Container stopped"
-                                )
-                            }
+                            onClick={async () => {
+                                if (await confirm(`Stop container ${name}?`, { variant: "warning", confirmLabel: "Stop" }))
+                                    run(action_stop({ body: { serviceName } }), "Container stopped");
+                            }}
                         />
                         <ActionButton
                             label="Restart"

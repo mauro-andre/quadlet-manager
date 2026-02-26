@@ -5,6 +5,7 @@ import type { QuadletListItem } from "../modules/quadlet/quadlet.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { toast } from "../components/toast.js";
+import { confirm } from "../components/confirm.js";
 import * as QuadletEdit from "./QuadletEdit.js";
 import * as QuadletNew from "./QuadletNew.js";
 import * as css from "./QuadletList.css.js";
@@ -144,12 +145,10 @@ export const Component = () => {
                                                         <>
                                                             <ActionButton
                                                                 label="Stop"
-                                                                onClick={() =>
-                                                                    run(
-                                                                        action_stop({ body: { serviceName: q.serviceName } }),
-                                                                        `${q.filename} stopped`
-                                                                    )
-                                                                }
+                                                                onClick={async () => {
+                                                                    if (await confirm(`Stop ${q.filename}?`, { variant: "warning", confirmLabel: "Stop" }))
+                                                                        run(action_stop({ body: { serviceName: q.serviceName } }), `${q.filename} stopped`);
+                                                                }}
                                                             />
                                                             <ActionButton
                                                                 label="Restart"
@@ -176,12 +175,10 @@ export const Component = () => {
                                                     <ActionButton
                                                         label="Delete"
                                                         variant="danger"
-                                                        onClick={() =>
-                                                            run(
-                                                                action_delete({ body: { filename: q.filename } }),
-                                                                `${q.filename} deleted`
-                                                            )
-                                                        }
+                                                        onClick={async () => {
+                                                            if (await confirm(`Delete ${q.filename}? This cannot be undone.`, { confirmLabel: "Delete" }))
+                                                                run(action_delete({ body: { filename: q.filename } }), `${q.filename} deleted`);
+                                                        }}
                                                     />
                                                 </div>
                                             </td>
