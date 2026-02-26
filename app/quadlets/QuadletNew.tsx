@@ -2,7 +2,6 @@ import type { ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useNavigate } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
-import { AppShell } from "../components/AppShell.js";
 import { CodeEditor } from "../components/CodeEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import * as QuadletList from "./QuadletList.js";
@@ -57,8 +56,7 @@ export const Component = () => {
     };
 
     return (
-        <AppShell>
-            <div class={css.page}>
+        <div class={css.page}>
                 <Link to={QuadletList} class={css.backLink}>
                     Back to Quadlets
                 </Link>
@@ -107,7 +105,6 @@ export const Component = () => {
                         onClick={handleCreate}
                     />
                 </div>
-            </div>
-        </AppShell>
+        </div>
     );
 };

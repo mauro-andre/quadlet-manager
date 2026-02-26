@@ -2,7 +2,6 @@ import type { LoaderArgs } from "velojs";
 import { useLoader } from "velojs/hooks";
 import type { PodmanContainer } from "../modules/podman/podman.types.js";
 import type { QuadletListItem } from "../modules/quadlet/quadlet.types.js";
-import { AppShell } from "../components/AppShell.js";
 import * as css from "./Dashboard.css.js";
 
 interface DashboardData {
@@ -29,7 +28,7 @@ export const loader = async (_args: LoaderArgs) => {
 export const Component = () => {
     const { data, loading } = useLoader<DashboardData>();
 
-    if (loading.value) return <AppShell>Loading...</AppShell>;
+    if (loading.value) return <div>Loading...</div>;
 
     const containers = data.value?.containers ?? [];
     const quadlets = data.value?.quadlets ?? [];
@@ -39,8 +38,7 @@ export const Component = () => {
     const stopped = containers.length - running;
 
     return (
-        <AppShell>
-            <div class={css.page}>
+        <div class={css.page}>
                 <h1 class={css.title}>Dashboard</h1>
                 <div class={css.grid}>
                     <div class={css.card}>
@@ -64,7 +62,6 @@ export const Component = () => {
                         </span>
                     </div>
                 </div>
-            </div>
-        </AppShell>
+        </div>
     );
 };

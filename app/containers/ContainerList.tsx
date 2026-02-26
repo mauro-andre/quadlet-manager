@@ -2,7 +2,6 @@ import type { LoaderArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
 import type { PodmanContainer } from "../modules/podman/podman.types.js";
-import { AppShell } from "../components/AppShell.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import * as ContainerDetail from "./ContainerDetail.js";
 import * as css from "./ContainerList.css.js";
@@ -24,13 +23,12 @@ export const loader = async (_args: LoaderArgs) => {
 export const Component = () => {
     const { data, loading } = useLoader<ContainerListData>();
 
-    if (loading.value) return <AppShell>Loading...</AppShell>;
+    if (loading.value) return <div>Loading...</div>;
 
     const containers = data.value?.containers ?? [];
 
     return (
-        <AppShell>
-            <div class={css.page}>
+        <div class={css.page}>
                 <h1 class={css.title}>Containers</h1>
                 <div class={css.tableWrapper}>
                     {containers.length === 0 ? (
@@ -91,7 +89,6 @@ export const Component = () => {
                         </table>
                     )}
                 </div>
-            </div>
-        </AppShell>
+        </div>
     );
 };

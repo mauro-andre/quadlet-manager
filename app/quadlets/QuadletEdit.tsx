@@ -4,7 +4,6 @@ import { useLoader, useParams } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { QuadletFile } from "../modules/quadlet/quadlet.types.js";
-import { AppShell } from "../components/AppShell.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { CodeEditor } from "../components/CodeEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
@@ -85,16 +84,15 @@ export const Component = () => {
         }
     }, [data.value?.quadlet]);
 
-    if (loading.value) return <AppShell>Loading...</AppShell>;
-    if (!data.value) return <AppShell>Quadlet not found</AppShell>;
+    if (loading.value) return <div>Loading...</div>;
+    if (!data.value) return <div>Quadlet not found</div>;
 
     const { quadlet, activeState } = data.value;
     const isActive = activeState === "active";
     const reload = () => window.location.reload();
 
     return (
-        <AppShell>
-            <div class={css.page}>
+        <div class={css.page}>
                 <Link to={QuadletList} class={css.backLink}>
                     Back to Quadlets
                 </Link>
@@ -163,7 +161,6 @@ export const Component = () => {
                     url={`/api/logs/service/${encodeURIComponent(quadlet.serviceName)}`}
                     title="Service Logs"
                 />
-            </div>
-        </AppShell>
+        </div>
     );
 };

@@ -3,7 +3,8 @@ import { vars } from "../styles/theme.css.js";
 
 export const shell = style({
     display: "flex",
-    minHeight: "100vh",
+    height: "100vh",
+    overflow: "hidden",
 });
 
 export const sidebar = style({
@@ -74,5 +75,5 @@ export const themeToggle = style({
 export const main = style({
     flex: 1,
     padding: vars.space.xl,
-    overflow: "auto",
+    overflowY: "auto",
 });

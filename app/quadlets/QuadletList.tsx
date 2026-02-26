@@ -2,7 +2,6 @@ import type { LoaderArgs, ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
 import type { QuadletListItem } from "../modules/quadlet/quadlet.types.js";
-import { AppShell } from "../components/AppShell.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import * as QuadletEdit from "./QuadletEdit.js";
@@ -71,15 +70,14 @@ export const action_delete = async ({
 export const Component = () => {
     const { data, loading } = useLoader<QuadletListData>();
 
-    if (loading.value) return <AppShell>Loading...</AppShell>;
+    if (loading.value) return <div>Loading...</div>;
 
     const quadlets = data.value?.quadlets ?? [];
 
     const reload = () => window.location.reload();
 
     return (
-        <AppShell>
-            <div class={css.page}>
+        <div class={css.page}>
                 <div class={css.header}>
                     <h1 class={css.title}>Quadlets</h1>
                     <Link to={QuadletNew} class={css.newButton}>
@@ -214,7 +212,6 @@ export const Component = () => {
                         </table>
                     )}
                 </div>
-            </div>
-        </AppShell>
+        </div>
     );
 };

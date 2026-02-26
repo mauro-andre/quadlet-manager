@@ -2,7 +2,6 @@ import type { LoaderArgs, ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader, useParams } from "velojs/hooks";
 import type { PodmanContainerInspect } from "../modules/podman/podman.types.js";
-import { AppShell } from "../components/AppShell.js";
 import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
@@ -61,16 +60,15 @@ export const Component = () => {
     const params = useParams<{ id: string }>();
     const { data, loading } = useLoader<ContainerDetailData>([params.id]);
 
-    if (loading.value) return <AppShell>Loading...</AppShell>;
-    if (!data.value) return <AppShell>Container not found</AppShell>;
+    if (loading.value) return <div>Loading...</div>;
+    if (!data.value) return <div>Container not found</div>;
 
     const { container, serviceName } = data.value;
     const name = container.Name.replace(/^\//, "");
     const state = container.State;
 
     return (
-        <AppShell>
-            <div class={css.page}>
+        <div class={css.page}>
                 <Link to={ContainerList} class={css.backLink}>
                     Back to Containers
                 </Link>
@@ -140,7 +138,6 @@ export const Component = () => {
                     url={`/api/logs/container/${encodeURIComponent(name)}`}
                     title="Container Logs"
                 />
-            </div>
-        </AppShell>
+        </div>
     );
 };
