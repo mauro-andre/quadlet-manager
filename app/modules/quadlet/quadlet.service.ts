@@ -2,7 +2,7 @@ import { readdir, readFile, writeFile, unlink, access } from "node:fs/promises";
 import { join, extname, basename } from "node:path";
 import { homedir } from "node:os";
 import type { QuadletFile, QuadletListItem, QuadletType } from "./quadlet.types.js";
-import { daemonReload } from "../systemd/systemd.service.js";
+import { daemonReload, getServiceStatus } from "../systemd/systemd.service.js";
 
 const VALID_EXTENSIONS = new Set([".container", ".network", ".volume"]);
 
@@ -46,15 +46,25 @@ export async function listQuadlets(): Promise<QuadletListItem[]> {
         return [];
     }
 
-    return entries
+    const files = entries
         .filter((f) => VALID_EXTENSIONS.has(extname(f)))
-        .sort()
-        .map((filename) => ({
-            name: basename(filename, extname(filename)),
-            type: extensionToType(extname(filename)),
-            filename,
-            serviceName: filenameToServiceName(filename),
-        }));
+        .sort();
+
+    const results = await Promise.all(
+        files.map(async (filename) => {
+            const serviceName = filenameToServiceName(filename);
+            const status = await getServiceStatus(serviceName);
+            return {
+                name: basename(filename, extname(filename)),
+                type: extensionToType(extname(filename)),
+                filename,
+                serviceName,
+                activeState: status.activeState,
+            };
+        })
+    );
+
+    return results;
 }
 
 export async function getQuadlet(filename: string): Promise<QuadletFile> {

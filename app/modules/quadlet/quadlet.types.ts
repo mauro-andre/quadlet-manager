@@ -14,4 +14,5 @@ export interface QuadletListItem {
     type: QuadletType;
     filename: string;
     serviceName: string;
+    activeState: string;
 }

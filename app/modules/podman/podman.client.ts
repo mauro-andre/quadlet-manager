@@ -1,8 +1,18 @@
 import http from "node:http";
+import { join } from "node:path";
 import type { PodmanContainer, PodmanContainerInspect } from "./podman.types.js";
 
-const PODMAN_SOCKET =
-    process.env.PODMAN_SOCKET || "/run/podman/podman.sock";
+function getDefaultSocket(): string {
+    // Rootless: $XDG_RUNTIME_DIR/podman/podman.sock
+    const xdgRuntime = process.env.XDG_RUNTIME_DIR;
+    if (xdgRuntime) {
+        return join(xdgRuntime, "podman/podman.sock");
+    }
+    // Rootful fallback
+    return "/run/podman/podman.sock";
+}
+
+const PODMAN_SOCKET = process.env.PODMAN_SOCKET || getDefaultSocket();
 const API_BASE = "/v4.0.0/libpod";
 
 async function podmanRequest<T>(

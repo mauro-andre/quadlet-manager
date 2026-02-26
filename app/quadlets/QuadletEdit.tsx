@@ -5,6 +5,7 @@ import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { QuadletFile } from "../modules/quadlet/quadlet.types.js";
 import { AppShell } from "../components/AppShell.js";
+import { StatusBadge } from "../components/StatusBadge.js";
 import { CodeEditor } from "../components/CodeEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import * as QuadletList from "./QuadletList.js";
@@ -12,13 +13,29 @@ import * as css from "./QuadletEdit.css.js";
 
 interface QuadletEditData {
     quadlet: QuadletFile;
+    activeState: string;
+    logs: string;
 }
 
 export const loader = async ({ params }: LoaderArgs) => {
     const { getQuadlet } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
-    return { quadlet: await getQuadlet(params.name!) } satisfies QuadletEditData;
+    const { getServiceStatus, getServiceLogs } = await import(
+        "../modules/systemd/systemd.service.js"
+    );
+
+    const quadlet = await getQuadlet(params.name!);
+    const [status, logs] = await Promise.all([
+        getServiceStatus(quadlet.serviceName),
+        getServiceLogs(quadlet.serviceName, 100),
+    ]);
+
+    return {
+        quadlet,
+        activeState: status.activeState,
+        logs,
+    } satisfies QuadletEditData;
 };
 
 export const action_save = async ({
@@ -28,6 +45,36 @@ export const action_save = async ({
         "../modules/quadlet/quadlet.service.js"
     );
     await saveQuadlet(body.filename, body.content);
+    return { ok: true };
+};
+
+export const action_start = async ({
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
+    const { startService } = await import(
+        "../modules/systemd/systemd.service.js"
+    );
+    await startService(body.serviceName);
+    return { ok: true };
+};
+
+export const action_stop = async ({
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
+    const { stopService } = await import(
+        "../modules/systemd/systemd.service.js"
+    );
+    await stopService(body.serviceName);
+    return { ok: true };
+};
+
+export const action_restart = async ({
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
+    const { restartService } = await import(
+        "../modules/systemd/systemd.service.js"
+    );
+    await restartService(body.serviceName);
     return { ok: true };
 };
 
@@ -45,7 +92,9 @@ export const Component = () => {
     if (loading.value) return <AppShell>Loading...</AppShell>;
     if (!data.value) return <AppShell>Quadlet not found</AppShell>;
 
-    const { quadlet } = data.value;
+    const { quadlet, activeState, logs } = data.value;
+    const isActive = activeState === "active";
+    const reload = () => window.location.reload();
 
     return (
         <AppShell>
@@ -56,21 +105,70 @@ export const Component = () => {
 
                 <div class={css.header}>
                     <h1 class={css.title}>{quadlet.filename}</h1>
-                    <ActionButton
-                        label="Save"
-                        variant="primary"
-                        onClick={() =>
-                            action_save({
-                                body: {
-                                    filename: quadlet.filename,
-                                    content: content.value,
-                                },
-                            })
-                        }
-                    />
+                    <StatusBadge status={activeState} />
+                    <div class={css.actions}>
+                        {isActive ? (
+                            <>
+                                <ActionButton
+                                    label="Stop"
+                                    onClick={() =>
+                                        action_stop({
+                                            body: {
+                                                serviceName:
+                                                    quadlet.serviceName,
+                                            },
+                                        }).then(reload)
+                                    }
+                                />
+                                <ActionButton
+                                    label="Restart"
+                                    onClick={() =>
+                                        action_restart({
+                                            body: {
+                                                serviceName:
+                                                    quadlet.serviceName,
+                                            },
+                                        }).then(reload)
+                                    }
+                                />
+                            </>
+                        ) : (
+                            <ActionButton
+                                label="Start"
+                                variant="primary"
+                                onClick={() =>
+                                    action_start({
+                                        body: {
+                                            serviceName:
+                                                quadlet.serviceName,
+                                        },
+                                    }).then(reload)
+                                }
+                            />
+                        )}
+                        <ActionButton
+                            label="Save"
+                            variant="primary"
+                            onClick={() =>
+                                action_save({
+                                    body: {
+                                        filename: quadlet.filename,
+                                        content: content.value,
+                                    },
+                                })
+                            }
+                        />
+                    </div>
                 </div>
 
                 <CodeEditor value={content} />
+
+                <div class={css.section}>
+                    <div class={css.sectionTitle}>Service Logs</div>
+                    <pre class={css.logs}>
+                        {logs || "No logs available"}
+                    </pre>
+                </div>
             </div>
         </AppShell>
     );

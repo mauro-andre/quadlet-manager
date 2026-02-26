@@ -3,6 +3,7 @@ import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
 import type { QuadletListItem } from "../modules/quadlet/quadlet.types.js";
 import { AppShell } from "../components/AppShell.js";
+import { StatusBadge } from "../components/StatusBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import * as QuadletEdit from "./QuadletEdit.js";
 import * as QuadletNew from "./QuadletNew.js";
@@ -19,10 +20,40 @@ export const loader = async (_args: LoaderArgs) => {
     return { quadlets: await listQuadlets() } satisfies QuadletListData;
 };
 
+export const action_start = async ({
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
+    const { startService } = await import(
+        "../modules/systemd/systemd.service.js"
+    );
+    await startService(body.serviceName);
+    return { ok: true };
+};
+
+export const action_stop = async ({
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
+    const { stopService } = await import(
+        "../modules/systemd/systemd.service.js"
+    );
+    await stopService(body.serviceName);
+    return { ok: true };
+};
+
+export const action_restart = async ({
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
+    const { restartService } = await import(
+        "../modules/systemd/systemd.service.js"
+    );
+    await restartService(body.serviceName);
+    return { ok: true };
+};
+
 export const action_delete = async ({
     body,
 }: ActionArgs<{ filename: string }>) => {
-    const { stopService } = await import(
+    const { stopService, disableService } = await import(
         "../modules/systemd/systemd.service.js"
     );
     const { deleteQuadlet } = await import(
@@ -32,6 +63,7 @@ export const action_delete = async ({
     const serviceName =
         body.filename.replace(/\.[^.]+$/, "") + ".service";
     await stopService(serviceName).catch(() => {});
+    await disableService(serviceName).catch(() => {});
     await deleteQuadlet(body.filename);
     return { ok: true };
 };
@@ -42,6 +74,8 @@ export const Component = () => {
     if (loading.value) return <AppShell>Loading...</AppShell>;
 
     const quadlets = data.value?.quadlets ?? [];
+
+    const reload = () => window.location.reload();
 
     return (
         <AppShell>
@@ -63,52 +97,119 @@ export const Component = () => {
                                 <tr>
                                     <th class={css.th}>Name</th>
                                     <th class={css.th}>Type</th>
-                                    <th class={css.th}>Service</th>
+                                    <th class={css.th}>Status</th>
                                     <th class={css.th}>Actions</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                {quadlets.map((q) => (
-                                    <tr key={q.filename}>
-                                        <td class={css.td}>
-                                            <Link
-                                                to={QuadletEdit}
-                                                params={{
-                                                    name: q.filename,
-                                                }}
-                                                class={css.nameLink}
-                                            >
-                                                {q.filename}
-                                            </Link>
-                                        </td>
-                                        <td class={css.td}>
-                                            <span class={css.typeBadge}>
-                                                {q.type}
-                                            </span>
-                                        </td>
-                                        <td class={css.td}>
-                                            {q.serviceName}
-                                        </td>
-                                        <td class={css.td}>
-                                            <div class={css.actionsCell}>
-                                                <ActionButton
-                                                    label="Delete"
-                                                    variant="danger"
-                                                    onClick={() =>
-                                                        action_delete({
-                                                            body: {
-                                                                filename:
-                                                                    q.filename,
-                                                            },
-                                                        }).then(() =>
-                                                            window.location.reload()
-                                                        )
+                                {quadlets.map((q) => {
+                                    const isActive =
+                                        q.activeState === "active";
+                                    return (
+                                        <tr key={q.filename}>
+                                            <td class={css.td}>
+                                                <Link
+                                                    to={QuadletEdit}
+                                                    params={{
+                                                        name: q.filename,
+                                                    }}
+                                                    class={css.nameLink}
+                                                >
+                                                    {q.filename}
+                                                </Link>
+                                            </td>
+                                            <td class={css.td}>
+                                                <span
+                                                    class={css.typeBadge}
+                                                >
+                                                    {q.type}
+                                                </span>
+                                            </td>
+                                            <td class={css.td}>
+                                                <StatusBadge
+                                                    status={
+                                                        q.activeState
                                                     }
                                                 />
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
+                                            </td>
+                                            <td class={css.td}>
+                                                <div
+                                                    class={
+                                                        css.actionsCell
+                                                    }
+                                                >
+                                                    {isActive ? (
+                                                        <>
+                                                            <ActionButton
+                                                                label="Stop"
+                                                                onClick={() =>
+                                                                    action_stop(
+                                                                        {
+                                                                            body: {
+                                                                                serviceName:
+                                                                                    q.serviceName,
+                                                                            },
+                                                                        }
+                                                                    ).then(
+                                                                        reload
+                                                                    )
+                                                                }
+                                                            />
+                                                            <ActionButton
+                                                                label="Restart"
+                                                                onClick={() =>
+                                                                    action_restart(
+                                                                        {
+                                                                            body: {
+                                                                                serviceName:
+                                                                                    q.serviceName,
+                                                                            },
+                                                                        }
+                                                                    ).then(
+                                                                        reload
+                                                                    )
+                                                                }
+                                                            />
+                                                        </>
+                                                    ) : (
+                                                        <ActionButton
+                                                            label="Start"
+                                                            variant="primary"
+                                                            onClick={() =>
+                                                                action_start(
+                                                                    {
+                                                                        body: {
+                                                                            serviceName:
+                                                                                q.serviceName,
+                                                                        },
+                                                                    }
+                                                                ).then(
+                                                                    reload
+                                                                )
+                                                            }
+                                                        />
+                                                    )}
+                                                    <ActionButton
+                                                        label="Delete"
+                                                        variant="danger"
+                                                        onClick={() =>
+                                                            action_delete(
+                                                                {
+                                                                    body: {
+                                                                        filename:
+                                                                            q.filename,
+                                                                    },
+                                                                }
+                                                            ).then(
+                                                                reload
+                                                            )
+                                                        }
+                                                    />
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    );
+                                })}
                             </tbody>
                         </table>
                     )}
