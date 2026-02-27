@@ -71,6 +71,39 @@ export const backLink = style({
     },
 });
 
+export const table = style({
+    width: "100%",
+    borderCollapse: "collapse",
+});
+
+export const th = style({
+    textAlign: "left",
+    padding: `${vars.space.sm} ${vars.space.md}`,
+    fontSize: vars.fontSize.xs,
+    fontWeight: 600,
+    textTransform: "uppercase",
+    letterSpacing: "0.5px",
+    color: vars.color.textMuted,
+    borderBottom: `1px solid ${vars.color.border}`,
+});
+
+export const td = style({
+    padding: `${vars.space.sm} ${vars.space.md}`,
+    borderBottom: `1px solid ${vars.color.borderMuted}`,
+    fontSize: vars.fontSize.sm,
+    wordBreak: "break-all",
+});
+
+export const envKey = style({
+    fontWeight: 500,
+    fontFamily: "monospace",
+});
+
+export const envValue = style({
+    fontFamily: "monospace",
+    color: vars.color.textMuted,
+});
+
 export const metricsSection = style({
     display: "flex",
     flexDirection: "column",

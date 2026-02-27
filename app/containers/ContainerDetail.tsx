@@ -211,6 +211,35 @@ export const Component = () => {
                     </div>
                 </div>
 
+                {container.Config.Env && container.Config.Env.length > 0 && (
+                    <div class={css.section}>
+                        <div class={css.sectionTitle}>
+                            Environment Variables ({container.Config.Env.length})
+                        </div>
+                        <table class={css.table}>
+                            <thead>
+                                <tr>
+                                    <th class={css.th}>Variable</th>
+                                    <th class={css.th}>Value</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {container.Config.Env.map((env) => {
+                                    const eqIdx = env.indexOf("=");
+                                    const key = eqIdx >= 0 ? env.slice(0, eqIdx) : env;
+                                    const val = eqIdx >= 0 ? env.slice(eqIdx + 1) : "";
+                                    return (
+                                        <tr key={key}>
+                                            <td class={`${css.td} ${css.envKey}`}>{key}</td>
+                                            <td class={`${css.td} ${css.envValue}`}>{val || "-"}</td>
+                                        </tr>
+                                    );
+                                })}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
+
                 <div class={css.metricsSection}>
                     <div class={css.metricsHeader}>
                         <span class={css.sectionTitle}>Metrics</span>
