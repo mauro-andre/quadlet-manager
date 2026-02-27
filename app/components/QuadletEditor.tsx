@@ -551,7 +551,9 @@ interface AddDirectiveButtonProps {
 
 function AddDirectiveButton({ sectionName, existingEntries, onAdd }: AddDirectiveButtonProps) {
     const open = useSignal(false);
+    const search = useSignal("");
     const wrapperRef = useRef<HTMLDivElement>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
 
     // Close on outside click
     useEffect(() => {
@@ -559,27 +561,47 @@ function AddDirectiveButton({ sectionName, existingEntries, onAdd }: AddDirectiv
         const handler = (e: MouseEvent) => {
             if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
                 open.value = false;
+                search.value = "";
             }
         };
         document.addEventListener("mousedown", handler);
         return () => document.removeEventListener("mousedown", handler);
     }, [open.value]);
 
+    // Autofocus search input when dropdown opens
+    useEffect(() => {
+        if (open.value && searchRef.current) {
+            searchRef.current.focus();
+        }
+    }, [open.value]);
+
     const spec = getSectionSpec(sectionName);
     const existingKeys = new Set(existingEntries.map((e) => e.key));
 
-    // Show directives not yet added (unless repeatable)
-    const available = spec?.directives.filter(
-        (d) => d.repeatable || !existingKeys.has(d.key)
-    ) ?? [];
+    // Filter: available, sorted alphabetically, filtered by search
+    const query = search.value.toLowerCase();
+    const available = (spec?.directives ?? [])
+        .filter((d) => d.repeatable || !existingKeys.has(d.key))
+        .filter((d) => !query || d.key.toLowerCase().includes(query) || d.description.toLowerCase().includes(query))
+        .sort((a, b) => a.key.localeCompare(b.key));
 
     return (
         <div class={css.dropdownWrapper} ref={wrapperRef}>
-            <button class={css.addBtn} onClick={() => { open.value = !open.value; }}>
+            <button class={css.addBtn} onClick={() => { open.value = !open.value; search.value = ""; }}>
                 + Add directive
             </button>
             {open.value && (
                 <div class={css.dropdown}>
+                    <div class={css.dropdownSearch}>
+                        <input
+                            ref={searchRef}
+                            class={css.dropdownSearchInput}
+                            type="text"
+                            placeholder="Search directives..."
+                            value={search.value}
+                            onInput={(e) => { search.value = (e.target as HTMLInputElement).value; }}
+                        />
+                    </div>
                     {available.map((d) => (
                         <div
                             key={d.key}
@@ -587,22 +609,31 @@ function AddDirectiveButton({ sectionName, existingEntries, onAdd }: AddDirectiv
                             onClick={() => {
                                 onAdd(d.key);
                                 open.value = false;
+                                search.value = "";
                             }}
                         >
                             <span class={css.dropdownItemKey}>{d.key}</span>
                             <span class={css.dropdownItemDesc}>{d.description}</span>
                         </div>
                     ))}
-                    <div
-                        class={css.dropdownItem}
-                        onClick={() => {
-                            onAdd("");
-                            open.value = false;
-                        }}
-                    >
-                        <span class={css.dropdownItemKey}>Custom</span>
-                        <span class={css.dropdownItemDesc}>Add a custom directive</span>
-                    </div>
+                    {(!query || "custom".includes(query)) && (
+                        <div
+                            class={css.dropdownItem}
+                            onClick={() => {
+                                onAdd("");
+                                open.value = false;
+                                search.value = "";
+                            }}
+                        >
+                            <span class={css.dropdownItemKey}>Custom</span>
+                            <span class={css.dropdownItemDesc}>Add a custom directive</span>
+                        </div>
+                    )}
+                    {available.length === 0 && query && !("custom".includes(query)) && (
+                        <div class={css.dropdownItem} style={{ opacity: 0.5, cursor: "default" }}>
+                            <span class={css.dropdownItemDesc}>No directives found</span>
+                        </div>
+                    )}
                 </div>
             )}
         </div>

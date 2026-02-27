@@ -229,6 +229,28 @@ export const dropdown = style({
     minWidth: "280px",
 });
 
+export const dropdownSearch = style({
+    padding: `${vars.space.sm} ${vars.space.sm}`,
+    borderBottom: `1px solid ${vars.color.border}`,
+    position: "sticky",
+    top: 0,
+    backgroundColor: vars.color.bgSurface,
+});
+
+export const dropdownSearchInput = style({
+    width: "100%",
+    padding: `${vars.space.xs} ${vars.space.sm}`,
+    backgroundColor: vars.color.bg,
+    color: vars.color.text,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.sm,
+    fontSize: vars.fontSize.sm,
+    outline: "none",
+    ":focus": {
+        borderColor: vars.color.primary,
+    },
+});
+
 export const dropdownItem = style({
     display: "flex",
     flexDirection: "column",
