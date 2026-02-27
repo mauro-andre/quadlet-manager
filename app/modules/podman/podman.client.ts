@@ -1,6 +1,6 @@
 import http from "node:http";
 import { join } from "node:path";
-import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse, PodmanImage, PodmanImageInspect, PodmanImageHistory } from "./podman.types.js";
+import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse, PodmanImage, PodmanImageInspect, PodmanImageHistory, PodmanDiskUsage } from "./podman.types.js";
 
 function getDefaultSocket(): string {
     // Rootless: $XDG_RUNTIME_DIR/podman/podman.sock
@@ -115,4 +115,8 @@ export async function removeImage(name: string, force: boolean = false): Promise
         `/images/${encodeURIComponent(name)}?force=${force}`,
         "DELETE"
     );
+}
+
+export async function getDiskUsage(): Promise<PodmanDiskUsage> {
+    return podmanRequest<PodmanDiskUsage>(`/system/df`);
 }

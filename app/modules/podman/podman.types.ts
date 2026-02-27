@@ -124,3 +124,40 @@ export interface PodmanImageHistory {
     tags: string[] | null;
     emptyLayer: boolean;
 }
+
+export interface PodmanDiskUsage {
+    ImagesSize: number;
+    Images: PodmanDfImage[];
+    Containers: PodmanDfContainer[];
+    Volumes: PodmanDfVolume[];
+}
+
+export interface PodmanDfImage {
+    Repository: string;
+    Tag: string;
+    ImageID: string;
+    Created: string;
+    Size: number;
+    SharedSize: number;
+    UniqueSize: number;
+    Containers: number;
+}
+
+export interface PodmanDfContainer {
+    ContainerID: string;
+    Image: string;
+    Command: string;
+    LocalVolumes: number;
+    Size: number;
+    RWSize: number;
+    Created: string;
+    Status: string;
+    Names: string;
+}
+
+export interface PodmanDfVolume {
+    VolumeName: string;
+    Links: number;
+    Size: number;
+    ReclaimableSize: number;
+}

@@ -17,6 +17,21 @@ interface SystemStats {
     other: { cpu: number; mem: number };
 }
 
+interface DiskPartition {
+    device: string;
+    mountpoint: string;
+    total: number;
+    used: number;
+    available: number;
+}
+
+interface DiskInfo {
+    partitions: DiskPartition[];
+    images: { count: number; totalSize: number };
+    containers: { count: number; rwSize: number };
+    volumes: { count: number; totalSize: number; reclaimable: number };
+}
+
 function formatBytes(bytes: number): string {
     if (bytes === 0) return "0 B";
     const units = ["B", "KB", "MB", "GB", "TB"];
@@ -91,10 +106,85 @@ function ResourceCard({
     );
 }
 
+function DiskUsageSection({ disk: d }: { disk: DiskInfo }) {
+    return (
+        <div class={css.resourceSection}>
+            <div class={css.sectionTitle}>Disk Usage</div>
+            <div class={css.diskGrid}>
+                <div class={css.diskCard}>
+                    <div class={css.diskCardTitle}>Filesystem</div>
+                    <div class={css.partitionList}>
+                        {d.partitions.map((p) => {
+                            const pct = p.total > 0 ? (p.used / p.total) * 100 : 0;
+                            return (
+                                <div key={p.device} class={css.partitionItem}>
+                                    <div class={css.partitionHeader}>
+                                        <span class={css.partitionMount}>{p.mountpoint}</span>
+                                        <span class={css.partitionSize}>
+                                            {formatBytes(p.used)} / {formatBytes(p.total)}
+                                        </span>
+                                    </div>
+                                    <div class={css.progressBar}>
+                                        <div
+                                            class={css.progressFill}
+                                            style={{
+                                                width: `${Math.min(100, pct)}%`,
+                                                backgroundColor: pct > 90 ? "#ff6b6b" : pct > 75 ? "#fcc419" : "#6c8cff",
+                                            }}
+                                        />
+                                    </div>
+                                    <div class={css.partitionDetail}>
+                                        <span>{p.device}</span>
+                                        <span>{pct.toFixed(1)}%</span>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                <div class={css.diskPodmanGrid}>
+                    <div class={css.diskCard}>
+                        <div class={css.diskCardTitle}>Images</div>
+                        <div class={css.diskCardValue}>
+                            {formatBytes(d.images.totalSize)}
+                        </div>
+                        <div class={css.diskCardSub}>
+                            {d.images.count} image{d.images.count !== 1 && "s"}
+                        </div>
+                    </div>
+
+                    <div class={css.diskCard}>
+                        <div class={css.diskCardTitle}>Containers</div>
+                        <div class={css.diskCardValue}>
+                            {formatBytes(d.containers.rwSize)}
+                        </div>
+                        <div class={css.diskCardSub}>
+                            {d.containers.count} container{d.containers.count !== 1 && "s"} (writable layers)
+                        </div>
+                    </div>
+
+                    <div class={css.diskCard}>
+                        <div class={css.diskCardTitle}>Volumes</div>
+                        <div class={css.diskCardValue}>
+                            {formatBytes(d.volumes.totalSize)}
+                        </div>
+                        <div class={css.diskCardSub}>
+                            {d.volumes.count} volume{d.volumes.count !== 1 && "s"}
+                            {d.volumes.reclaimable > 0 && ` — ${formatBytes(d.volumes.reclaimable)} reclaimable`}
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
 export const Component = () => {
     const { data, loading } = useLoader<DashboardData>();
     const statsRef = useRef<SystemStats | null>(null);
     const stats = useSignal<SystemStats | null>(null);
+    const disk = useSignal<DiskInfo | null>(null);
 
     // Live system stats via SSE
     useEffect(() => {
@@ -116,6 +206,16 @@ export const Component = () => {
         };
 
         return () => es.close();
+    }, []);
+
+    // Disk usage (fetched once, doesn't change fast)
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+
+        fetch("/api/system/disk")
+            .then((res) => res.json())
+            .then((d: DiskInfo) => { disk.value = d; })
+            .catch(() => {});
     }, []);
 
     if (loading.value) return <div>Loading...</div>;
@@ -177,6 +277,8 @@ export const Component = () => {
                     </div>
                 </div>
             )}
+
+            {disk.value && <DiskUsageSection disk={disk.value} />}
         </div>
     );
 };

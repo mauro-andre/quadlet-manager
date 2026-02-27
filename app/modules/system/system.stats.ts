@@ -1,10 +1,11 @@
-import { readFile } from "node:fs/promises";
+import { readFile, statfs } from "node:fs/promises";
 
 export interface SystemMemory {
     total: number;     // bytes
     used: number;      // bytes
     available: number; // bytes
 }
+
 
 interface CpuTicks {
     idle: number;
@@ -53,4 +54,58 @@ export async function getSystemMemory(): Promise<SystemMemory> {
         used: total - available,
         available,
     };
+}
+
+export interface DiskPartition {
+    device: string;
+    mountpoint: string;
+    total: number;     // bytes
+    used: number;      // bytes
+    available: number; // bytes
+}
+
+export async function getSystemDisks(): Promise<DiskPartition[]> {
+    const mounts = await readFile("/proc/mounts", "utf-8");
+    // Keep the shortest mountpoint per device (avoids bind mount duplicates)
+    const deviceMap = new Map<string, string>();
+
+    for (const line of mounts.split("\n")) {
+        const parts = line.split(" ");
+        if (!parts[0] || !parts[1]) continue;
+        const device = parts[0];
+        const mountpoint = parts[1];
+
+        if (!device.startsWith("/dev/")) continue;
+
+        // Skip system/boot partitions
+        if (/^\/(boot|efi|recovery)/.test(mountpoint)) continue;
+
+        const existing = deviceMap.get(device);
+        if (!existing || mountpoint.length < existing.length) {
+            deviceMap.set(device, mountpoint);
+        }
+    }
+
+    const partitions: DiskPartition[] = [];
+    for (const [device, mountpoint] of deviceMap) {
+        try {
+            const s = await statfs(mountpoint);
+            const total = s.blocks * s.bsize;
+            if (total === 0) continue;
+            const available = s.bavail * s.bsize;
+            partitions.push({
+                device,
+                mountpoint,
+                total,
+                used: total - available,
+                available,
+            });
+        } catch {
+            // skip inaccessible mounts
+        }
+    }
+
+    // Sort by total size descending
+    partitions.sort((a, b) => b.total - a.total);
+    return partitions;
 }

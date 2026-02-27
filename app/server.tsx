@@ -155,6 +155,50 @@ function registerSystemEndpoints(app: Hono) {
         });
     });
 
+    // Disk usage (filesystems + Podman)
+    app.get("/api/system/disk", async (c) => {
+        const { getSystemDisks } = await import(
+            "./modules/system/system.stats.js"
+        );
+        const { getDiskUsage } = await import(
+            "./modules/podman/podman.client.js"
+        );
+
+        const [partitions, podman] = await Promise.all([
+            getSystemDisks(),
+            getDiskUsage(),
+        ]);
+
+        let containersSize = 0;
+        for (const ct of podman.Containers ?? []) {
+            containersSize += ct.RWSize;
+        }
+
+        let volumesSize = 0;
+        let volumesReclaimable = 0;
+        for (const v of podman.Volumes ?? []) {
+            volumesSize += v.Size;
+            volumesReclaimable += v.ReclaimableSize;
+        }
+
+        return c.json({
+            partitions,
+            images: {
+                count: podman.Images?.length ?? 0,
+                totalSize: podman.ImagesSize,
+            },
+            containers: {
+                count: podman.Containers?.length ?? 0,
+                rwSize: containersSize,
+            },
+            volumes: {
+                count: podman.Volumes?.length ?? 0,
+                totalSize: volumesSize,
+                reclaimable: volumesReclaimable,
+            },
+        });
+    });
+
     // SSE live system stats
     app.get("/api/system/stats/live", async (c) => {
         const { streamSSE } = await import("hono/streaming");
