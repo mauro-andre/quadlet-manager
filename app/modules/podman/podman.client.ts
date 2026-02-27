@@ -1,6 +1,6 @@
 import http from "node:http";
 import { join } from "node:path";
-import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse, PodmanImage, PodmanImageInspect, PodmanImageHistory, PodmanDiskUsage } from "./podman.types.js";
+import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse, PodmanImage, PodmanImageInspect, PodmanImageHistory, PodmanDiskUsage, PodmanVolume } from "./podman.types.js";
 
 function getDefaultSocket(): string {
     // Rootless: $XDG_RUNTIME_DIR/podman/podman.sock
@@ -119,4 +119,30 @@ export async function removeImage(name: string, force: boolean = false): Promise
 
 export async function getDiskUsage(): Promise<PodmanDiskUsage> {
     return podmanRequest<PodmanDiskUsage>(`/system/df`);
+}
+
+export async function listContainersByVolume(
+    volumeName: string
+): Promise<PodmanContainer[]> {
+    const filters = encodeURIComponent(JSON.stringify({ volume: [volumeName] }));
+    return podmanRequest<PodmanContainer[]>(
+        `/containers/json?all=true&filters=${filters}`
+    );
+}
+
+export async function listVolumes(): Promise<PodmanVolume[]> {
+    return podmanRequest<PodmanVolume[]>(`/volumes/json`);
+}
+
+export async function inspectVolume(name: string): Promise<PodmanVolume> {
+    return podmanRequest<PodmanVolume>(
+        `/volumes/${encodeURIComponent(name)}/json`
+    );
+}
+
+export async function removeVolume(name: string, force: boolean = false): Promise<void> {
+    await podmanRequest<unknown>(
+        `/volumes/${encodeURIComponent(name)}?force=${force}`,
+        "DELETE"
+    );
 }

@@ -24,7 +24,7 @@ export interface PodmanContainer {
     Created: string;
     Ports: PodmanPort[];
     Labels: Record<string, string>;
-    Mounts: PodmanMount[];
+    Mounts: string[];
 }
 
 export interface PodmanContainerInspect {
@@ -160,4 +160,16 @@ export interface PodmanDfVolume {
     Links: number;
     Size: number;
     ReclaimableSize: number;
+}
+
+export interface PodmanVolume {
+    Name: string;
+    Driver: string;
+    Mountpoint: string;
+    CreatedAt: string;
+    Labels: Record<string, string> | null;
+    Scope: string;
+    Options: Record<string, unknown> | null;
+    Anonymous?: boolean;
+    MountCount: number;
 }

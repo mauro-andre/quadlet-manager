@@ -10,6 +10,8 @@ import * as QuadletNew from "./quadlets/QuadletNew.js";
 import * as QuadletEdit from "./quadlets/QuadletEdit.js";
 import * as ImageList from "./images/ImageList.js";
 import * as ImageDetail from "./images/ImageDetail.js";
+import * as VolumeList from "./volumes/VolumeList.js";
+import * as VolumeDetail from "./volumes/VolumeDetail.js";
 
 export default [
     {
@@ -27,6 +29,8 @@ export default [
                     { path: "/quadlets/:name", module: QuadletEdit },
                     { path: "/images", module: ImageList },
                     { path: "/images/:id", module: ImageDetail },
+                    { path: "/volumes", module: VolumeList },
+                    { path: "/volumes/:name", module: VolumeDetail },
                 ],
             },
         ],
