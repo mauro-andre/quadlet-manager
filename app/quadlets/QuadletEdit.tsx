@@ -5,7 +5,7 @@ import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { QuadletFile } from "../modules/quadlet/quadlet.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
-import { CodeEditor } from "../components/CodeEditor.js";
+import { QuadletEditor } from "../components/QuadletEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
 import { toast } from "../components/toast.js";
@@ -151,7 +151,7 @@ export const Component = () => {
                     </div>
                 </div>
 
-                <CodeEditor value={content} />
+                <QuadletEditor content={content} />
 
                 <LogStream
                     url={`/api/logs/service/${encodeURIComponent(quadlet.serviceName)}`}

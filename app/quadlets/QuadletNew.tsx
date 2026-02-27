@@ -2,7 +2,7 @@ import type { ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useNavigate } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
-import { CodeEditor } from "../components/CodeEditor.js";
+import { QuadletEditor } from "../components/QuadletEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { toast } from "../components/toast.js";
 import * as QuadletList from "./QuadletList.js";
@@ -103,7 +103,7 @@ export const Component = () => {
                         </div>
                     </div>
 
-                    <CodeEditor value={content} />
+                    <QuadletEditor content={content} />
 
                     <ActionButton
                         label="Create Quadlet"
