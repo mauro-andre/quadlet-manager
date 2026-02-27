@@ -16,6 +16,12 @@ import {
 } from "../modules/quadlet/quadlet.directives.js";
 import * as css from "./QuadletEditor.css.js";
 
+interface PodmanResources {
+    images: string[];
+    volumes: string[];
+    networks: string[];
+}
+
 interface QuadletEditorProps {
     content: Signal<string>;
 }
@@ -24,6 +30,19 @@ export function QuadletEditor({ content }: QuadletEditorProps) {
     const mode = useSignal<"form" | "code">("form");
     const sections = useSignal<QuadletSection[]>(parseQuadlet(content.value));
     const revision = useSignal(0);
+    const resources = useSignal<PodmanResources>({ images: [], volumes: [], networks: [] });
+
+    // Fetch available images, volumes and networks for form dropdowns
+    useEffect(() => {
+        if (typeof window === "undefined") return;
+        Promise.all([
+            fetch("/api/podman/images").then((r) => r.json()).catch(() => []),
+            fetch("/api/podman/volumes").then((r) => r.json()).catch(() => []),
+            fetch("/api/podman/networks").then((r) => r.json()).catch(() => []),
+        ]).then(([images, volumes, networks]) => {
+            resources.value = { images, volumes, networks };
+        });
+    }, []);
 
     // Sync form → content whenever sections change
     const syncToContent = useCallback(() => {
@@ -129,6 +148,7 @@ export function QuadletEditor({ content }: QuadletEditorProps) {
                             key={`${sIdx}-${section.name}-${revision.value}`}
                             section={section}
                             sectionIdx={sIdx}
+                            resources={resources.value}
                             onAddEntry={addEntry}
                             onUpdateEntry={updateEntry}
                             onRemoveEntry={removeEntry}
@@ -152,6 +172,7 @@ export function QuadletEditor({ content }: QuadletEditorProps) {
 interface SectionCardProps {
     section: QuadletSection;
     sectionIdx: number;
+    resources: PodmanResources;
     onAddEntry: (sectionIdx: number, key: string, value: string) => void;
     onUpdateEntry: (sectionIdx: number, entryIdx: number, entry: QuadletEntry) => void;
     onRemoveEntry: (sectionIdx: number, entryIdx: number) => void;
@@ -161,6 +182,7 @@ interface SectionCardProps {
 function SectionCard({
     section,
     sectionIdx,
+    resources,
     onAddEntry,
     onUpdateEntry,
     onRemoveEntry,
@@ -191,6 +213,7 @@ function SectionCard({
                         entry={entry}
                         sectionIdx={sectionIdx}
                         entryIdx={eIdx}
+                        resources={resources}
                         onUpdate={onUpdateEntry}
                         onRemove={onRemoveEntry}
                     />
@@ -216,11 +239,12 @@ interface EntryRowProps {
     entry: QuadletEntry;
     sectionIdx: number;
     entryIdx: number;
+    resources: PodmanResources;
     onUpdate: (sectionIdx: number, entryIdx: number, entry: QuadletEntry) => void;
     onRemove: (sectionIdx: number, entryIdx: number) => void;
 }
 
-function EntryRow({ sectionName, entry, sectionIdx, entryIdx, onUpdate, onRemove }: EntryRowProps) {
+function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, onUpdate, onRemove }: EntryRowProps) {
     const spec = getDirectiveSpec(sectionName, entry.key);
     const isMapped = !!spec;
     const customValue = useSignal(false);
@@ -240,6 +264,12 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, onUpdate, onRemove
             updateValue(newRight ? `${newLeft}${sep}${newRight}` : newLeft);
         };
 
+        // Volume source: dropdown with existing volumes + custom path
+        const isVolumeSource = entry.key === "Volume" && sectionName === "Container";
+        const volumeOptions = isVolumeSource ? resources.volumes : [];
+        const leftIsVolume = isVolumeSource && volumeOptions.includes(left);
+        const showLeftCustom = customValue.value;
+
         return (
             <div class={css.entryRow}>
                 <span class={css.entryKeyLabel}>{entry.key}</span>
@@ -247,12 +277,45 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, onUpdate, onRemove
                 <div class={css.pairFieldGroup}>
                     <div class={css.pairField}>
                         <span class={css.pairLabel}>{spec.leftLabel}</span>
-                        <input
-                            class={css.entryInput}
-                            value={left}
-                            onInput={(e) => updatePair((e.target as HTMLInputElement).value, right)}
-                            placeholder={spec.leftLabel}
-                        />
+                        <div class={css.inputWithAction}>
+                            {isVolumeSource && !showLeftCustom ? (
+                                <select
+                                    class={css.entrySelect}
+                                    value={leftIsVolume || !left ? left : "__custom__"}
+                                    onChange={(e) => {
+                                        const val = (e.target as HTMLSelectElement).value;
+                                        if (val === "__custom__") {
+                                            customValue.value = true;
+                                            updatePair("", right);
+                                        } else {
+                                            updatePair(val, right);
+                                        }
+                                    }}
+                                >
+                                    <option value="">— Select volume —</option>
+                                    {volumeOptions.map((v) => (
+                                        <option key={v} value={v}>{v}</option>
+                                    ))}
+                                    <option value="__custom__">Custom path...</option>
+                                </select>
+                            ) : (
+                                <input
+                                    class={css.entryInput}
+                                    value={left}
+                                    onInput={(e) => updatePair((e.target as HTMLInputElement).value, right)}
+                                    placeholder={isVolumeSource ? "/host/path or volume" : spec.leftLabel}
+                                />
+                            )}
+                            {isVolumeSource && showLeftCustom && (
+                                <button
+                                    class={css.removeBtn}
+                                    onClick={() => { customValue.value = false; }}
+                                    title="Switch back to dropdown"
+                                >
+                                    ↩
+                                </button>
+                            )}
+                        </div>
                     </div>
                     <span class={css.pairSeparator}>{sep}</span>
                     <div class={css.pairField}>
@@ -281,44 +344,160 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, onUpdate, onRemove
             <div class={css.entryRow}>
                 <span class={css.entryKeyLabel}>{entry.key}</span>
                 <span class={css.entryDesc}>{spec.description}</span>
-                {showCustom ? (
-                    <input
-                        class={css.entryInput}
-                        value={entry.value}
-                        onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
-                        placeholder="Custom value"
-                    />
-                ) : (
-                    <select
-                        class={css.entrySelect}
-                        value={entry.value}
-                        onChange={(e) => {
-                            const val = (e.target as HTMLSelectElement).value;
-                            if (val === "__custom__") {
-                                customValue.value = true;
-                            } else {
-                                updateValue(val);
-                            }
-                        }}
-                    >
-                        <option value="">— Select —</option>
-                        {spec.options.map((opt) => (
-                            <option key={opt.value} value={opt.value}>
-                                {opt.value} — {opt.description}
-                            </option>
-                        ))}
-                        <option value="__custom__">Custom...</option>
-                    </select>
-                )}
-                {showCustom && (
-                    <button
-                        class={css.removeBtn}
-                        onClick={() => { customValue.value = false; }}
-                        title="Switch back to dropdown"
-                    >
-                        ↩
-                    </button>
-                )}
+                <div class={css.inputWithAction}>
+                    {showCustom ? (
+                        <input
+                            class={css.entryInput}
+                            value={entry.value}
+                            onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
+                            placeholder="Custom value"
+                        />
+                    ) : (
+                        <select
+                            class={css.entrySelect}
+                            value={entry.value}
+                            onChange={(e) => {
+                                const val = (e.target as HTMLSelectElement).value;
+                                if (val === "__custom__") {
+                                    customValue.value = true;
+                                } else {
+                                    updateValue(val);
+                                }
+                            }}
+                        >
+                            <option value="">— Select —</option>
+                            {spec.options.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                    {opt.value} — {opt.description}
+                                </option>
+                            ))}
+                            <option value="__custom__">Custom...</option>
+                        </select>
+                    )}
+                    {showCustom && (
+                        <button
+                            class={css.removeBtn}
+                            onClick={() => { customValue.value = false; }}
+                            title="Switch back to dropdown"
+                        >
+                            ↩
+                        </button>
+                    )}
+                </div>
+                <button class={css.removeBtn} onClick={() => onRemove(sectionIdx, entryIdx)} title="Remove">
+                    ×
+                </button>
+            </div>
+        );
+    }
+
+    // --- Text field with resource dropdown (Image) ---
+    const isImageField = entry.key === "Image" && sectionName === "Container";
+    const imageOptions = isImageField ? resources.images : [];
+
+    if (isImageField && imageOptions.length > 0) {
+        const isKnownImage = imageOptions.includes(entry.value);
+        const showCustomImg = customValue.value || (!isKnownImage && entry.value !== "");
+
+        return (
+            <div class={css.entryRow}>
+                <span class={css.entryKeyLabel}>{entry.key}</span>
+                <span class={css.entryDesc}>{spec?.description}</span>
+                <div class={css.inputWithAction}>
+                    {showCustomImg ? (
+                        <input
+                            class={css.entryInput}
+                            value={entry.value}
+                            onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
+                            placeholder="docker.io/library/nginx:latest"
+                        />
+                    ) : (
+                        <select
+                            class={css.entrySelect}
+                            value={entry.value}
+                            onChange={(e) => {
+                                const val = (e.target as HTMLSelectElement).value;
+                                if (val === "__custom__") {
+                                    customValue.value = true;
+                                } else {
+                                    updateValue(val);
+                                }
+                            }}
+                        >
+                            <option value="">— Select image —</option>
+                            {imageOptions.map((img) => (
+                                <option key={img} value={img}>{img}</option>
+                            ))}
+                            <option value="__custom__">Custom...</option>
+                        </select>
+                    )}
+                    {showCustomImg && (
+                        <button
+                            class={css.removeBtn}
+                            onClick={() => { customValue.value = false; }}
+                            title="Switch back to dropdown"
+                        >
+                            ↩
+                        </button>
+                    )}
+                </div>
+                <button class={css.removeBtn} onClick={() => onRemove(sectionIdx, entryIdx)} title="Remove">
+                    ×
+                </button>
+            </div>
+        );
+    }
+
+    // --- Text field with resource dropdown (Network) ---
+    const isNetworkField = entry.key === "Network" && (sectionName === "Container" || sectionName === "Pod");
+    const networkOptions = isNetworkField ? resources.networks : [];
+
+    if (isNetworkField && networkOptions.length > 0) {
+        const isKnownNetwork = networkOptions.includes(entry.value);
+        const showCustomNet = customValue.value || (!isKnownNetwork && entry.value !== "");
+
+        return (
+            <div class={css.entryRow}>
+                <span class={css.entryKeyLabel}>{entry.key}</span>
+                <span class={css.entryDesc}>{spec?.description}</span>
+                <div class={css.inputWithAction}>
+                    {showCustomNet ? (
+                        <input
+                            class={css.entryInput}
+                            value={entry.value}
+                            onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
+                            placeholder="Network name"
+                        />
+                    ) : (
+                        <select
+                            class={css.entrySelect}
+                            value={entry.value}
+                            onChange={(e) => {
+                                const val = (e.target as HTMLSelectElement).value;
+                                if (val === "__custom__") {
+                                    customValue.value = true;
+                                } else {
+                                    updateValue(val);
+                                }
+                            }}
+                        >
+                            <option value="">— Select network —</option>
+                            {networkOptions.map((n) => (
+                                <option key={n} value={n}>{n}</option>
+                            ))}
+                            <option value="__custom__">Custom...</option>
+                        </select>
+                    )}
+                    {showCustomNet && (
+                        <button
+                            class={css.removeBtn}
+                            onClick={() => { customValue.value = false; }}
+                            title="Switch back to dropdown"
+                        >
+                            ↩
+                        </button>
+                    )}
+                </div>
                 <button class={css.removeBtn} onClick={() => onRemove(sectionIdx, entryIdx)} title="Remove">
                     ×
                 </button>
@@ -332,7 +511,7 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, onUpdate, onRemove
             {isMapped ? (
                 <>
                     <span class={css.entryKeyLabel}>{entry.key}</span>
-                    <span class={css.entryDesc}>{spec.description}</span>
+                    <span class={css.entryDesc}>{spec?.description}</span>
                 </>
             ) : (
                 <input

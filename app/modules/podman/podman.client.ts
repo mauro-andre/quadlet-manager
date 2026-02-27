@@ -1,6 +1,6 @@
 import http from "node:http";
 import { join } from "node:path";
-import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse, PodmanImage, PodmanImageInspect, PodmanImageHistory, PodmanDiskUsage, PodmanVolume } from "./podman.types.js";
+import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse, PodmanImage, PodmanImageInspect, PodmanImageHistory, PodmanDiskUsage, PodmanNetwork, PodmanVolume } from "./podman.types.js";
 
 function getDefaultSocket(): string {
     // Rootless: $XDG_RUNTIME_DIR/podman/podman.sock
@@ -128,6 +128,10 @@ export async function listContainersByVolume(
     return podmanRequest<PodmanContainer[]>(
         `/containers/json?all=true&filters=${filters}`
     );
+}
+
+export async function listNetworks(): Promise<PodmanNetwork[]> {
+    return podmanRequest<PodmanNetwork[]>(`/networks/json`);
 }
 
 export async function listVolumes(): Promise<PodmanVolume[]> {

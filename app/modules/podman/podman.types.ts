@@ -162,6 +162,18 @@ export interface PodmanDfVolume {
     ReclaimableSize: number;
 }
 
+export interface PodmanNetwork {
+    name: string;
+    id: string;
+    driver: string;
+    network_interface: string;
+    subnets: Array<{ subnet: string; gateway: string }> | null;
+    ipv6_enabled: boolean;
+    internal: boolean;
+    dns_enabled: boolean;
+    created: string;
+}
+
 export interface PodmanVolume {
     Name: string;
     Driver: string;

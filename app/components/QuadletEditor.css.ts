@@ -150,6 +150,14 @@ export const entryKeyInput = style({
     },
 });
 
+export const inputWithAction = style({
+    display: "flex",
+    alignItems: "center",
+    gap: vars.space.xs,
+    flex: 1,
+    minWidth: 0,
+});
+
 export const pairSeparator = style({
     fontSize: vars.fontSize.sm,
     color: vars.color.textMuted,

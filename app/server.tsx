@@ -11,6 +11,7 @@ addRoutes((app: Hono) => {
     registerLogStreams(app);
     registerMetricsEndpoints(app);
     registerSystemEndpoints(app);
+    registerPodmanEndpoints(app);
 });
 
 function registerMetricsEndpoints(app: Hono) {
@@ -122,6 +123,37 @@ function registerLogStreams(app: Hono) {
 
             await new Promise<void>((resolve) => proc.on("close", resolve));
         });
+    });
+}
+
+function registerPodmanEndpoints(app: Hono) {
+    // Image names (for quadlet editor)
+    app.get("/api/podman/images", async (c) => {
+        const { listImages } = await import("./modules/podman/podman.client.js");
+        const images = await listImages().catch(() => []);
+        const tags: string[] = [];
+        for (const img of images) {
+            if (img.RepoTags) {
+                for (const tag of img.RepoTags) {
+                    if (tag !== "<none>:<none>") tags.push(tag);
+                }
+            }
+        }
+        return c.json(tags);
+    });
+
+    // Volume names (for quadlet editor)
+    app.get("/api/podman/volumes", async (c) => {
+        const { listVolumes } = await import("./modules/podman/podman.client.js");
+        const volumes = await listVolumes().catch(() => []);
+        return c.json(volumes.map((v) => v.Name));
+    });
+
+    // Network names (for quadlet editor)
+    app.get("/api/podman/networks", async (c) => {
+        const { listNetworks } = await import("./modules/podman/podman.client.js");
+        const networks = await listNetworks().catch(() => []);
+        return c.json(networks.map((n) => n.name).filter(Boolean));
     });
 }
 
