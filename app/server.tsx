@@ -12,6 +12,7 @@ addRoutes((app: Hono) => {
     registerMetricsEndpoints(app);
     registerSystemEndpoints(app);
     registerPodmanEndpoints(app);
+    registerPullEndpoints(app);
 });
 
 function registerMetricsEndpoints(app: Hono) {
@@ -122,6 +123,113 @@ function registerLogStreams(app: Hono) {
             stream.onAbort(() => { proc.kill(); });
 
             await new Promise<void>((resolve) => proc.on("close", resolve));
+        });
+    });
+}
+
+function registerPullEndpoints(app: Hono) {
+    app.post("/api/images/pull", async (c) => {
+        const { pullStore } = await import("./modules/podman/pull.store.js");
+        const { podmanStreamPull } = await import("./modules/podman/podman.client.js");
+
+        const { reference } = await c.req.json<{ reference: string }>();
+        if (!reference || typeof reference !== "string") {
+            return c.json({ error: "Missing reference" }, 400);
+        }
+
+        const pullId = pullStore.createPull(reference.trim());
+        let lastError = "";
+        let pulledImages: string[] | null = null;
+
+        podmanStreamPull(
+            reference.trim(),
+            (line) => {
+                try {
+                    const parsed = JSON.parse(line);
+
+                    // Track final result fields
+                    if (parsed.images && Array.isArray(parsed.images)) {
+                        pulledImages = parsed.images;
+                    }
+                    if (parsed.error) {
+                        lastError = parsed.error;
+                    }
+
+                    const message = parsed.stream || parsed.error || "";
+                    if (message) {
+                        pullStore.emit({
+                            pullId,
+                            reference,
+                            type: "progress",
+                            message: message.replace(/\n$/, ""),
+                            timestamp: Date.now(),
+                        });
+                    }
+                } catch {
+                    pullStore.emit({
+                        pullId,
+                        reference,
+                        type: "progress",
+                        message: line,
+                        timestamp: Date.now(),
+                    });
+                }
+            },
+            () => {
+                if (lastError || !pulledImages || pulledImages.length === 0) {
+                    pullStore.emit({
+                        pullId,
+                        reference,
+                        type: "error",
+                        message: lastError || "Pull failed: no images returned",
+                        timestamp: Date.now(),
+                    });
+                } else {
+                    pullStore.emit({
+                        pullId,
+                        reference,
+                        type: "complete",
+                        message: `Successfully pulled ${reference}`,
+                        timestamp: Date.now(),
+                    });
+                }
+            },
+            (err) => {
+                pullStore.emit({
+                    pullId,
+                    reference,
+                    type: "error",
+                    message: err.message,
+                    timestamp: Date.now(),
+                });
+            },
+        );
+
+        return c.json({ pullId });
+    });
+
+    app.get("/api/images/pull/events", async (c) => {
+        const { streamSSE } = await import("hono/streaming");
+        const { pullStore } = await import("./modules/podman/pull.store.js");
+
+        return streamSSE(c, async (stream) => {
+            const active = pullStore.getActivePulls();
+            if (active.length > 0) {
+                await stream.writeSSE({
+                    event: "snapshot",
+                    data: JSON.stringify(active),
+                });
+            }
+
+            const unsubscribe = pullStore.subscribe((event) => {
+                stream.writeSSE({
+                    event: event.type === "error" ? "pull-error" : event.type,
+                    data: JSON.stringify(event),
+                });
+            });
+
+            stream.onAbort(() => { unsubscribe(); });
+            await new Promise<void>(() => {});
         });
     });
 }

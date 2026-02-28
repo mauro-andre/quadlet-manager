@@ -150,3 +150,50 @@ export async function removeVolume(name: string, force: boolean = false): Promis
         "DELETE"
     );
 }
+
+export function podmanStreamPull(
+    reference: string,
+    onLine: (line: string) => void,
+    onEnd: () => void,
+    onError: (err: Error) => void,
+): () => void {
+    const options: http.RequestOptions = {
+        socketPath: PODMAN_SOCKET,
+        path: `${API_BASE}/images/pull?reference=${encodeURIComponent(reference)}`,
+        method: "POST",
+    };
+
+    const req = http.request(options, (res) => {
+        if (res.statusCode && (res.statusCode < 200 || res.statusCode >= 300)) {
+            let data = "";
+            res.on("data", (chunk: Buffer) => (data += chunk));
+            res.on("end", () => {
+                onError(new Error(`Podman pull returned ${res.statusCode}: ${data}`));
+            });
+            return;
+        }
+
+        let buffer = "";
+        res.on("data", (chunk: Buffer) => {
+            buffer += chunk.toString();
+            const lines = buffer.split("\n");
+            buffer = lines.pop()!;
+            for (const line of lines) {
+                if (line.trim()) onLine(line);
+            }
+        });
+
+        res.on("end", () => {
+            if (buffer.trim()) onLine(buffer);
+            onEnd();
+        });
+    });
+
+    req.on("error", (err) => {
+        onError(new Error(`Podman socket error (${PODMAN_SOCKET}): ${err.message}`));
+    });
+
+    req.end();
+
+    return () => { req.destroy(); };
+}
