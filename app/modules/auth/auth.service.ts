@@ -42,7 +42,10 @@ while True:
         os.close(fd)
         os.waitpid(pid, 0)
         sys.exit(1)
-    data = os.read(fd, 4096)
+    try:
+        data = os.read(fd, 4096)
+    except OSError:
+        break
     if not data:
         break
     buf += data

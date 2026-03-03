@@ -46,6 +46,12 @@ systemctl status quadlet-manager
 journalctl -u quadlet-manager -f
 ```
 
+To manage rootless (user scope) containers, enable linger for each user:
+```bash
+loginctl enable-linger <username>
+```
+This keeps the user's Podman socket active even when they're not logged in via SSH.
+
 Access the UI at `http://your-server:3000`.
 
 ## Updating
