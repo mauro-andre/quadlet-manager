@@ -130,15 +130,17 @@ function registerLogStreams(app: Hono) {
 
         const name = c.req.param("name");
         const scope = getScope(c);
+        const user = getUser(c);
 
         const { journalctlCmd } = await import("./modules/systemd/systemd.service.js");
-        const [cmd, args] = journalctlCmd(
+        const [cmd, args, env] = journalctlCmd(
             ["-f", "-u", name, "-n", "100", "--no-pager", "-o", "short"],
-            scope
+            scope,
+            user
         );
 
         return streamSSE(c, async (stream) => {
-            const proc = spawn(cmd, args);
+            const proc = spawn(cmd, args, env ? { env: { ...process.env, ...env } } : undefined);
 
             proc.stdout.on("data", (chunk: Buffer) => {
                 stream.writeSSE({ data: chunk.toString() });
@@ -305,21 +307,29 @@ function registerSystemEndpoints(app: Hono) {
         const { getSystemCpuPercent, getSystemMemory } = await import(
             "./modules/system/system.stats.js"
         );
+        const { listContainers } = await import(
+            "./modules/podman/podman.client.js"
+        );
 
-        const [cpu, memory, containerMetrics] = await Promise.all([
+        const user = getUser(c);
+        const [cpu, memory, containers] = await Promise.all([
             getSystemCpuPercent(),
             getSystemMemory(),
-            store.latestAll(),
+            listContainers("user", user.uid).catch(() => []),
         ]);
 
-        // Sum container resource usage
+        // Filter collector metrics to only include user's containers
+        const containerIds = new Set(containers.map((ct) => ct.Id));
+        const allMetrics = store.latestAll();
         let containersCpu = 0;
         let containersMem = 0;
         let containersCount = 0;
-        for (const point of Object.values(containerMetrics)) {
-            containersCpu += point.cpu;
-            containersMem += point.mem;
-            containersCount++;
+        for (const [id, point] of Object.entries(allMetrics)) {
+            if (containerIds.has(id)) {
+                containersCpu += point.cpu;
+                containersMem += point.mem;
+                containersCount++;
+            }
         }
 
         return c.json({
@@ -375,31 +385,48 @@ function registerSystemEndpoints(app: Hono) {
         });
     });
 
-    // SSE live system stats
+    // SSE live system stats — queries user's Podman socket directly
     app.get("/api/system/stats/live", async (c) => {
         const { streamSSE } = await import("hono/streaming");
         const { getSystemCpuPercent, getSystemMemory } = await import(
             "./modules/system/system.stats.js"
         );
+        const { getAllContainerStats } = await import(
+            "./modules/podman/podman.client.js"
+        );
+
+        const user = getUser(c);
+        const prevCpu = new Map<string, { cpuNano: number; systemNano: number }>();
 
         return streamSSE(c, async (stream) => {
             let running = true;
             stream.onAbort(() => { running = false; });
 
             while (running) {
-                const [cpu, memory] = await Promise.all([
+                const [cpu, memory, stats] = await Promise.all([
                     getSystemCpuPercent(),
                     getSystemMemory(),
+                    getAllContainerStats("user", user.uid).catch(() => []),
                 ]);
 
-                const containerMetrics = store.latestAll();
                 let containersCpu = 0;
                 let containersMem = 0;
-                let containersCount = 0;
-                for (const point of Object.values(containerMetrics)) {
-                    containersCpu += point.cpu;
-                    containersMem += point.mem;
-                    containersCount++;
+                const containersCount = stats.length;
+
+                for (const s of stats) {
+                    let cpuPercent = 0;
+                    const prev = prevCpu.get(s.ContainerID);
+                    if (prev && prev.systemNano > 0) {
+                        const deltaCpu = s.CPUNano - prev.cpuNano;
+                        const deltaSystem = s.SystemNano - prev.systemNano;
+                        if (deltaSystem > 0) {
+                            cpuPercent = Math.min(100, (deltaCpu / deltaSystem) * 100);
+                        }
+                    }
+                    prevCpu.set(s.ContainerID, { cpuNano: s.CPUNano, systemNano: s.SystemNano });
+
+                    containersCpu += cpuPercent;
+                    containersMem += s.MemUsage;
                 }
 
                 stream.writeSSE({

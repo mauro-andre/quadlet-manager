@@ -31,7 +31,7 @@ export const loader = async ({ params, query, c }: LoaderArgs) => {
     const user = c.get("user");
     const scope: Scope = query.scope === "system" ? "system" : "user";
     const quadlet = await getQuadlet(params.name!, scope, user);
-    const status = await getServiceStatus(quadlet.serviceName, scope);
+    const status = await getServiceStatus(quadlet.serviceName, scope, user);
 
     return {
         quadlet,
@@ -51,32 +51,35 @@ export const action_save = async ({
 };
 
 export const action_start = async ({
-    body,
+    body, c,
 }: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { startService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await startService(body.serviceName, body.scope);
+    const user = c!.get("user");
+    await startService(body.serviceName, body.scope, user);
     return { ok: true };
 };
 
 export const action_stop = async ({
-    body,
+    body, c,
 }: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { stopService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await stopService(body.serviceName, body.scope);
+    const user = c!.get("user");
+    await stopService(body.serviceName, body.scope, user);
     return { ok: true };
 };
 
 export const action_restart = async ({
-    body,
+    body, c,
 }: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { restartService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await restartService(body.serviceName, body.scope);
+    const user = c!.get("user");
+    await restartService(body.serviceName, body.scope, user);
     return { ok: true };
 };
 

@@ -25,32 +25,35 @@ export const loader = async ({ c }: LoaderArgs) => {
 };
 
 export const action_start = async ({
-    body,
+    body, c,
 }: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { startService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await startService(body.serviceName, body.scope);
+    const user = c!.get("user");
+    await startService(body.serviceName, body.scope, user);
     return { ok: true };
 };
 
 export const action_stop = async ({
-    body,
+    body, c,
 }: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { stopService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await stopService(body.serviceName, body.scope);
+    const user = c!.get("user");
+    await stopService(body.serviceName, body.scope, user);
     return { ok: true };
 };
 
 export const action_restart = async ({
-    body,
+    body, c,
 }: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { restartService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await restartService(body.serviceName, body.scope);
+    const user = c!.get("user");
+    await restartService(body.serviceName, body.scope, user);
     return { ok: true };
 };
 
@@ -67,8 +70,8 @@ export const action_delete = async ({
     const user = c!.get("user");
     const serviceName =
         body.filename.replace(/\.[^.]+$/, "") + ".service";
-    await stopService(serviceName, body.scope).catch(() => {});
-    await disableService(serviceName, body.scope).catch(() => {});
+    await stopService(serviceName, body.scope, user).catch(() => {});
+    await disableService(serviceName, body.scope, user).catch(() => {});
     await deleteQuadlet(body.filename, body.scope, user);
     return { ok: true };
 };
