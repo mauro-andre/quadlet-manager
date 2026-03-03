@@ -25,6 +25,15 @@ function getUser(c: { get: (k: string) => unknown }): AuthUser {
 }
 
 addRoutes((app: Hono) => {
+    // Health check — unauthenticated (used by update polling)
+    app.get("/api/health", async (c) => {
+        const { getCurrentVersion } = await import(
+            "./modules/update/update.service.js"
+        );
+        const version = await getCurrentVersion();
+        return c.json({ version });
+    });
+
     // Protect all API routes with auth
     app.use("/api/*", authMiddleware);
 
