@@ -11,7 +11,7 @@ No existing tool covers this gap — Portainer doesn't support Quadlets, Cockpit
 - **Quadlets** — Create, edit, and delete `.container`, `.network`, `.volume` files with a built-in editor
 - **Images** — Browse local images, pull new ones with real-time progress tracking, remove unused images
 - **Volumes** — View and manage volumes with usage information
-- **Reverse Proxy** — Built-in Caddy-based domain management with Let's Encrypt, custom certificates, or HTTP-only modes
+- **Reverse Proxy** — Built-in Caddy-based domain management with Let's Encrypt, custom certificates, or HTTP-only modes. Route to containers or host services with per-domain TLS control
 - **Authentication** — PAM-based login with JWT sessions
 - **Dual Scope** — Manage both system and user (rootless) Podman containers
 
