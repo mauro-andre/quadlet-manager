@@ -3,11 +3,32 @@ import { addRoutes } from "velojs/server";
 import { MetricsStore } from "./modules/metrics/metrics.store.js";
 import { startCollector } from "./modules/metrics/metrics.collector.js";
 import type { TimeRange } from "./modules/metrics/metrics.types.js";
+import { authMiddleware } from "./modules/auth/auth.middleware.js";
+import type { AuthUser, Scope } from "./modules/auth/auth.types.js";
 
 const store = new MetricsStore();
 startCollector(store);
 
+function getScope(c: { req: { query: (k: string) => string | undefined } }): Scope {
+    const s = c.req.query("scope");
+    return s === "system" ? "system" : "user";
+}
+
+function getUser(c: { get: (k: string) => unknown }): AuthUser {
+    return c.get("user") as AuthUser;
+}
+
 addRoutes((app: Hono) => {
+    // Protect all API routes with auth
+    app.use("/api/*", authMiddleware);
+
+    // Logout endpoint
+    app.post("/api/auth/logout", async (c) => {
+        const { deleteCookie } = await import("velojs/cookie");
+        deleteCookie(c, "session", { path: "/" });
+        return c.json({ ok: true });
+    });
+
     registerLogStreams(app);
     registerMetricsEndpoints(app);
     registerSystemEndpoints(app);
@@ -72,8 +93,16 @@ function registerLogStreams(app: Hono) {
         const { spawn } = await import("node:child_process");
 
         const name = c.req.param("name");
+        const scope = getScope(c);
+        const user = getUser(c);
+
+        // Use podman with the correct socket for the scope
+        const { getSocketForScope } = await import("./modules/podman/podman.client.js");
+        const socket = getSocketForScope(scope, user.uid);
+
         return streamSSE(c, async (stream) => {
             const proc = spawn("podman", [
+                "--url", `unix://${socket}`,
                 "logs",
                 "-f",
                 "--tail",
@@ -100,21 +129,16 @@ function registerLogStreams(app: Hono) {
         const { spawn } = await import("node:child_process");
 
         const name = c.req.param("name");
-        const isRootless = (process.getuid?.() ?? 0) !== 0;
-        const args = [
-            ...(isRootless ? ["--user"] : []),
-            "-f",
-            "-u",
-            name,
-            "-n",
-            "100",
-            "--no-pager",
-            "-o",
-            "short",
-        ];
+        const scope = getScope(c);
+
+        const { journalctlCmd } = await import("./modules/systemd/systemd.service.js");
+        const [cmd, args] = journalctlCmd(
+            ["-f", "-u", name, "-n", "100", "--no-pager", "-o", "short"],
+            scope
+        );
 
         return streamSSE(c, async (stream) => {
-            const proc = spawn("journalctl", args);
+            const proc = spawn(cmd, args);
 
             proc.stdout.on("data", (chunk: Buffer) => {
                 stream.writeSSE({ data: chunk.toString() });
@@ -132,17 +156,21 @@ function registerPullEndpoints(app: Hono) {
         const { pullStore } = await import("./modules/podman/pull.store.js");
         const { podmanStreamPull } = await import("./modules/podman/podman.client.js");
 
-        const { reference } = await c.req.json<{ reference: string }>();
+        const user = getUser(c);
+        const { reference, scope: reqScope } = await c.req.json<{ reference: string; scope?: Scope }>();
         if (!reference || typeof reference !== "string") {
             return c.json({ error: "Missing reference" }, 400);
         }
 
+        const scope: Scope = reqScope === "system" ? "system" : "user";
         const pullId = pullStore.createPull(reference.trim());
         let lastError = "";
         let pulledImages: string[] | null = null;
 
         podmanStreamPull(
             reference.trim(),
+            scope,
+            user.uid,
             (line) => {
                 try {
                     const parsed = JSON.parse(line);
@@ -235,10 +263,12 @@ function registerPullEndpoints(app: Hono) {
 }
 
 function registerPodmanEndpoints(app: Hono) {
-    // Image names (for quadlet editor)
+    // Image names (for quadlet editor) — scope-aware
     app.get("/api/podman/images", async (c) => {
         const { listImages } = await import("./modules/podman/podman.client.js");
-        const images = await listImages().catch(() => []);
+        const scope = getScope(c);
+        const user = getUser(c);
+        const images = await listImages(scope, user.uid).catch(() => []);
         const tags: string[] = [];
         for (const img of images) {
             if (img.RepoTags) {
@@ -250,17 +280,21 @@ function registerPodmanEndpoints(app: Hono) {
         return c.json(tags);
     });
 
-    // Volume names (for quadlet editor)
+    // Volume names (for quadlet editor) — scope-aware
     app.get("/api/podman/volumes", async (c) => {
         const { listVolumes } = await import("./modules/podman/podman.client.js");
-        const volumes = await listVolumes().catch(() => []);
+        const scope = getScope(c);
+        const user = getUser(c);
+        const volumes = await listVolumes(scope, user.uid).catch(() => []);
         return c.json(volumes.map((v) => v.Name));
     });
 
-    // Network names (for quadlet editor)
+    // Network names (for quadlet editor) — scope-aware
     app.get("/api/podman/networks", async (c) => {
         const { listNetworks } = await import("./modules/podman/podman.client.js");
-        const networks = await listNetworks().catch(() => []);
+        const scope = getScope(c);
+        const user = getUser(c);
+        const networks = await listNetworks(scope, user.uid).catch(() => []);
         return c.json(networks.map((n) => n.name).filter(Boolean));
     });
 }
@@ -295,7 +329,7 @@ function registerSystemEndpoints(app: Hono) {
         });
     });
 
-    // Disk usage (filesystems + Podman)
+    // Disk usage (filesystems + Podman) — uses user scope
     app.get("/api/system/disk", async (c) => {
         const { getSystemDisks } = await import(
             "./modules/system/system.stats.js"
@@ -304,9 +338,11 @@ function registerSystemEndpoints(app: Hono) {
             "./modules/podman/podman.client.js"
         );
 
+        const user = getUser(c);
+        const scope = getScope(c);
         const [partitions, podman] = await Promise.all([
             getSystemDisks(),
-            getDiskUsage(),
+            getDiskUsage(scope, user.uid),
         ]);
 
         let containersSize = 0;

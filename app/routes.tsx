@@ -1,6 +1,9 @@
 import type { AppRoutes } from "velojs";
 
 import * as Root from "./client-root.js";
+import * as AuthLayout from "./auth/AuthLayout.js";
+import * as Login from "./auth/Login.js";
+import { authMiddleware } from "./modules/auth/auth.middleware.js";
 import * as AdminLayout from "./layouts/AdminLayout.js";
 import * as Dashboard from "./dashboard/Dashboard.js";
 import * as ContainerList from "./containers/ContainerList.js";
@@ -19,7 +22,13 @@ export default [
         isRoot: true,
         children: [
             {
+                path: "/login",
+                module: AuthLayout,
+                children: [{ module: Login }],
+            },
+            {
                 module: AdminLayout,
+                middlewares: [authMiddleware],
                 children: [
                     { path: "/", module: Dashboard },
                     { path: "/containers", module: ContainerList },

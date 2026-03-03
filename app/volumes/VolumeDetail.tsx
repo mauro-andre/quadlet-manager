@@ -6,7 +6,9 @@ import type {
     PodmanContainer,
     PodmanDfVolume,
 } from "../modules/podman/podman.types.js";
+import type { Scope } from "../modules/auth/auth.types.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { ScopeBadge } from "../components/ScopeBadge.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import * as VolumeList from "./VolumeList.js";
@@ -24,31 +26,35 @@ interface VolumeDetailData {
     volume: PodmanVolume;
     containers: PodmanContainer[];
     df: PodmanDfVolume | null;
+    scope: Scope;
 }
 
-export const loader = async ({ params }: LoaderArgs) => {
+export const loader = async ({ params, query, c }: LoaderArgs) => {
     const { inspectVolume, listContainersByVolume, getDiskUsage } = await import(
         "../modules/podman/podman.client.js"
     );
 
+    const user = c.get("user");
+    const scope: Scope = query.scope === "system" ? "system" : "user";
     const [volume, containers, diskUsage] = await Promise.all([
-        inspectVolume(params.name!),
-        listContainersByVolume(params.name!).catch(() => [] as PodmanContainer[]),
-        getDiskUsage().catch(() => null),
+        inspectVolume(params.name!, scope, user.uid),
+        listContainersByVolume(params.name!, scope, user.uid).catch(() => [] as PodmanContainer[]),
+        getDiskUsage(scope, user.uid).catch(() => null),
     ]);
 
     const df = diskUsage?.Volumes?.find((v) => v.VolumeName === volume.Name) ?? null;
 
-    return { volume, containers, df } satisfies VolumeDetailData;
+    return { volume, containers, df, scope } satisfies VolumeDetailData;
 };
 
 export const action_remove = async ({
-    body,
-}: ActionArgs<{ name: string; force: boolean }>) => {
+    body, c,
+}: ActionArgs<{ name: string; force: boolean; scope: Scope }>) => {
     const { removeVolume } = await import(
         "../modules/podman/podman.client.js"
     );
-    await removeVolume(body.name, body.force);
+    const user = c!.get("user");
+    await removeVolume(body.name, body.scope, user.uid, body.force);
     return { ok: true };
 };
 
@@ -60,7 +66,7 @@ export const Component = () => {
     if (loading.value) return <div>Loading...</div>;
     if (!data.value) return <div>Volume not found</div>;
 
-    const { volume, containers, df } = data.value;
+    const { volume, containers, df, scope } = data.value;
     const inUse = containers.length > 0;
 
     return (
@@ -71,6 +77,7 @@ export const Component = () => {
 
             <div class={css.header}>
                 <h1 class={css.title}>{volume.Name}</h1>
+                <ScopeBadge scope={scope} />
                 <div class={css.actions}>
                     <ActionButton
                         label="Remove"
@@ -81,7 +88,7 @@ export const Component = () => {
                                 : `Remove volume ${volume.Name}?`;
                             if (await confirm(msg, { confirmLabel: "Remove" })) {
                                 try {
-                                    await action_remove({ body: { name: volume.Name, force: inUse } });
+                                    await action_remove({ body: { name: volume.Name, force: inUse, scope } });
                                     toast("Volume removed");
                                     navigate("/volumes");
                                 } catch {
@@ -157,6 +164,7 @@ export const Component = () => {
                                             <Link
                                                 to={ContainerDetail}
                                                 params={{ id: c.Id.slice(0, 12) }}
+                                                search={{ scope }}
                                                 class={css.nameLink}
                                             >
                                                 {name}

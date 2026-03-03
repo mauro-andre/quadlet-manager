@@ -1,16 +1,30 @@
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
+import type { Scope } from "../auth/auth.types.js";
 
 const execFile = promisify(execFileCb);
 
-const isRootless = () => (process.getuid?.() ?? 0) !== 0;
+const isRoot = () => (process.getuid?.() ?? 0) === 0;
 
-function systemctlArgs(args: string[]): string[] {
-    return isRootless() ? ["--user", ...args] : args;
+function systemctlCmd(args: string[], scope: Scope): [string, string[]] {
+    if (scope === "user") {
+        return ["systemctl", ["--user", ...args]];
+    }
+    if (isRoot()) {
+        return ["systemctl", args];
+    }
+    // sudo -n = non-interactive, never prompts for password
+    return ["sudo", ["-n", "systemctl", ...args]];
 }
 
-function journalctlArgs(args: string[]): string[] {
-    return isRootless() ? ["--user", ...args] : args;
+function journalctlCmd(args: string[], scope: Scope): [string, string[]] {
+    if (scope === "user") {
+        return ["journalctl", ["--user", ...args]];
+    }
+    if (isRoot()) {
+        return ["journalctl", args];
+    }
+    return ["sudo", ["-n", "journalctl", ...args]];
 }
 
 export interface ServiceStatus {
@@ -19,35 +33,41 @@ export interface ServiceStatus {
     mainPid: number;
 }
 
-export async function startService(serviceName: string): Promise<void> {
-    await execFile("systemctl", systemctlArgs(["start", serviceName]));
+export async function startService(serviceName: string, scope: Scope): Promise<void> {
+    const [cmd, args] = systemctlCmd(["start", serviceName], scope);
+    await execFile(cmd, args);
 }
 
-export async function stopService(serviceName: string): Promise<void> {
-    await execFile("systemctl", systemctlArgs(["stop", serviceName]));
+export async function stopService(serviceName: string, scope: Scope): Promise<void> {
+    const [cmd, args] = systemctlCmd(["stop", serviceName], scope);
+    await execFile(cmd, args);
 }
 
-export async function restartService(serviceName: string): Promise<void> {
-    await execFile("systemctl", systemctlArgs(["restart", serviceName]));
+export async function restartService(serviceName: string, scope: Scope): Promise<void> {
+    const [cmd, args] = systemctlCmd(["restart", serviceName], scope);
+    await execFile(cmd, args);
 }
 
-export async function disableService(serviceName: string): Promise<void> {
-    await execFile("systemctl", systemctlArgs(["disable", serviceName]));
+export async function disableService(serviceName: string, scope: Scope): Promise<void> {
+    const [cmd, args] = systemctlCmd(["disable", serviceName], scope);
+    await execFile(cmd, args);
 }
 
 export async function getServiceStatus(
-    serviceName: string
+    serviceName: string,
+    scope: Scope
 ): Promise<ServiceStatus> {
     try {
-        const { stdout } = await execFile(
-            "systemctl",
-            systemctlArgs([
+        const [cmd, args] = systemctlCmd(
+            [
                 "show",
                 serviceName,
                 "--property=ActiveState,SubState,MainPID",
                 "--no-pager",
-            ])
+            ],
+            scope
         );
+        const { stdout } = await execFile(cmd, args);
 
         const props: Record<string, string> = {};
         for (const line of stdout.split("\n")) {
@@ -69,26 +89,31 @@ export async function getServiceStatus(
 
 export async function getServiceLogs(
     serviceName: string,
+    scope: Scope,
     lines: number = 100
 ): Promise<string> {
     try {
-        const { stdout } = await execFile(
-            "journalctl",
-            journalctlArgs([
+        const [cmd, args] = journalctlCmd(
+            [
                 "-u",
                 serviceName,
                 "-n",
                 String(lines),
                 "--no-pager",
                 "--output=short",
-            ])
+            ],
+            scope
         );
+        const { stdout } = await execFile(cmd, args);
         return stdout;
     } catch {
         return "";
     }
 }
 
-export async function daemonReload(): Promise<void> {
-    await execFile("systemctl", systemctlArgs(["daemon-reload"]));
+export async function daemonReload(scope: Scope): Promise<void> {
+    const [cmd, args] = systemctlCmd(["daemon-reload"], scope);
+    await execFile(cmd, args);
 }
+
+export { systemctlCmd, journalctlCmd };

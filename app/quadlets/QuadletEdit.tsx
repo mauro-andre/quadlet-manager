@@ -4,7 +4,9 @@ import { useLoader, useParams } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { QuadletFile } from "../modules/quadlet/quadlet.types.js";
+import type { Scope } from "../modules/auth/auth.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
+import { ScopeBadge } from "../components/ScopeBadge.js";
 import { QuadletEditor } from "../components/QuadletEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
@@ -18,7 +20,7 @@ interface QuadletEditData {
     activeState: string;
 }
 
-export const loader = async ({ params }: LoaderArgs) => {
+export const loader = async ({ params, query, c }: LoaderArgs) => {
     const { getQuadlet } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
@@ -26,8 +28,10 @@ export const loader = async ({ params }: LoaderArgs) => {
         "../modules/systemd/systemd.service.js"
     );
 
-    const quadlet = await getQuadlet(params.name!);
-    const status = await getServiceStatus(quadlet.serviceName);
+    const user = c.get("user");
+    const scope: Scope = query.scope === "system" ? "system" : "user";
+    const quadlet = await getQuadlet(params.name!, scope, user);
+    const status = await getServiceStatus(quadlet.serviceName, scope);
 
     return {
         quadlet,
@@ -36,42 +40,43 @@ export const loader = async ({ params }: LoaderArgs) => {
 };
 
 export const action_save = async ({
-    body,
-}: ActionArgs<{ filename: string; content: string }>) => {
+    body, c,
+}: ActionArgs<{ filename: string; content: string; scope: Scope }>) => {
     const { saveQuadlet } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
-    await saveQuadlet(body.filename, body.content);
+    const user = c!.get("user");
+    await saveQuadlet(body.filename, body.content, body.scope, user);
     return { ok: true };
 };
 
 export const action_start = async ({
     body,
-}: ActionArgs<{ serviceName: string }>) => {
+}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { startService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await startService(body.serviceName);
+    await startService(body.serviceName, body.scope);
     return { ok: true };
 };
 
 export const action_stop = async ({
     body,
-}: ActionArgs<{ serviceName: string }>) => {
+}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { stopService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await stopService(body.serviceName);
+    await stopService(body.serviceName, body.scope);
     return { ok: true };
 };
 
 export const action_restart = async ({
     body,
-}: ActionArgs<{ serviceName: string }>) => {
+}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
     const { restartService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    await restartService(body.serviceName);
+    await restartService(body.serviceName, body.scope);
     return { ok: true };
 };
 
@@ -91,6 +96,7 @@ export const Component = () => {
 
     const { quadlet, activeState } = data.value;
     const isActive = activeState === "active";
+    const scope = quadlet.scope;
 
     const run = (action: Promise<unknown>, msg: string) =>
         action
@@ -105,6 +111,7 @@ export const Component = () => {
 
                 <div class={css.header}>
                     <h1 class={css.title}>{quadlet.filename}</h1>
+                    <ScopeBadge scope={scope} />
                     <StatusBadge status={activeState} />
                     <div class={css.actions}>
                         {isActive ? (
@@ -113,14 +120,14 @@ export const Component = () => {
                                     label="Stop"
                                     onClick={async () => {
                                         if (await confirm(`Stop ${quadlet.filename}?`, { variant: "warning", confirmLabel: "Stop" }))
-                                            run(action_stop({ body: { serviceName: quadlet.serviceName } }), "Service stopped");
+                                            run(action_stop({ body: { serviceName: quadlet.serviceName, scope } }), "Service stopped");
                                     }}
                                 />
                                 <ActionButton
                                     label="Restart"
                                     onClick={() =>
                                         run(
-                                            action_restart({ body: { serviceName: quadlet.serviceName } }),
+                                            action_restart({ body: { serviceName: quadlet.serviceName, scope } }),
                                             "Service restarted"
                                         )
                                     }
@@ -132,7 +139,7 @@ export const Component = () => {
                                 variant="primary"
                                 onClick={() =>
                                     run(
-                                        action_start({ body: { serviceName: quadlet.serviceName } }),
+                                        action_start({ body: { serviceName: quadlet.serviceName, scope } }),
                                         "Service started"
                                     )
                                 }
@@ -143,7 +150,7 @@ export const Component = () => {
                             variant="primary"
                             onClick={() =>
                                 run(
-                                    action_save({ body: { filename: quadlet.filename, content: content.value } }),
+                                    action_save({ body: { filename: quadlet.filename, content: content.value, scope } }),
                                     "Quadlet saved"
                                 )
                             }
@@ -154,7 +161,7 @@ export const Component = () => {
                 <QuadletEditor content={content} />
 
                 <LogStream
-                    url={`/api/logs/service/${encodeURIComponent(quadlet.serviceName)}`}
+                    url={`/api/logs/service/${encodeURIComponent(quadlet.serviceName)}?scope=${scope}`}
                     title="Service Logs"
                 />
         </div>

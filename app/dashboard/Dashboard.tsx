@@ -39,19 +39,19 @@ function formatBytes(bytes: number): string {
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
-export const loader = async (_args: LoaderArgs) => {
-    const { listContainers } = await import(
+export const loader = async ({ c }: LoaderArgs) => {
+    const { listAllContainers } = await import(
         "../modules/podman/podman.client.js"
     );
-    const { listQuadlets } = await import(
+    const { listAllQuadlets } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
 
+    const user = c.get("user");
     const [containers, quadlets] = await Promise.all([
-        listContainers(true).catch(() => [] as PodmanContainer[]),
-        listQuadlets(),
+        listAllContainers(user).catch(() => [] as PodmanContainer[]),
+        listAllQuadlets(user).catch(() => [] as QuadletListItem[]),
     ]);
-
     return { containers, quadlets } satisfies DashboardData;
 };
 

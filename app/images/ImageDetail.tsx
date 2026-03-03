@@ -6,7 +6,9 @@ import type {
     PodmanImageHistory,
     PodmanContainer,
 } from "../modules/podman/podman.types.js";
+import type { Scope } from "../modules/auth/auth.types.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { ScopeBadge } from "../components/ScopeBadge.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import * as ImageList from "./ImageList.js";
@@ -28,33 +30,37 @@ interface ImageDetailData {
     image: PodmanImageInspect;
     history: PodmanImageHistory[];
     containers: PodmanContainer[];
+    scope: Scope;
 }
 
-export const loader = async ({ params }: LoaderArgs) => {
+export const loader = async ({ params, query, c }: LoaderArgs) => {
     const { inspectImage, getImageHistory, listContainers } = await import(
         "../modules/podman/podman.client.js"
     );
 
+    const user = c.get("user");
+    const scope: Scope = query.scope === "system" ? "system" : "user";
     const [image, history, allContainers] = await Promise.all([
-        inspectImage(params.id!),
-        getImageHistory(params.id!),
-        listContainers(true).catch(() => [] as PodmanContainer[]),
+        inspectImage(params.id!, scope, user.uid),
+        getImageHistory(params.id!, scope, user.uid),
+        listContainers(scope, user.uid, true).catch(() => [] as PodmanContainer[]),
     ]);
 
     const containers = allContainers.filter(
         (c) => c.ImageID === image.Id || c.ImageID.startsWith(params.id!)
     );
 
-    return { image, history, containers } satisfies ImageDetailData;
+    return { image, history, containers, scope } satisfies ImageDetailData;
 };
 
 export const action_remove = async ({
-    body,
-}: ActionArgs<{ id: string; force: boolean }>) => {
+    body, c,
+}: ActionArgs<{ id: string; force: boolean; scope: Scope }>) => {
     const { removeImage } = await import(
         "../modules/podman/podman.client.js"
     );
-    await removeImage(body.id, body.force);
+    const user = c!.get("user");
+    await removeImage(body.id, body.scope, user.uid, body.force);
     return { ok: true };
 };
 
@@ -66,7 +72,7 @@ export const Component = () => {
     if (loading.value) return <div>Loading...</div>;
     if (!data.value) return <div>Image not found</div>;
 
-    const { image, history, containers } = data.value;
+    const { image, history, containers, scope } = data.value;
     const tag =
         image.RepoTags && image.RepoTags.length > 0
             ? image.RepoTags[0]!
@@ -80,6 +86,7 @@ export const Component = () => {
 
             <div class={css.header}>
                 <h1 class={css.title}>{tag}</h1>
+                <ScopeBadge scope={scope} />
                 <div class={css.actions}>
                     <ActionButton
                         label="Remove"
@@ -91,7 +98,7 @@ export const Component = () => {
                                 : `Remove image ${tag}?`;
                             if (await confirm(msg, { confirmLabel: "Remove" })) {
                                 try {
-                                    await action_remove({ body: { id: image.Id, force: hasContainers } });
+                                    await action_remove({ body: { id: image.Id, force: hasContainers, scope } });
                                     toast("Image removed");
                                     navigate("/images");
                                 } catch {
@@ -232,6 +239,7 @@ export const Component = () => {
                                             <Link
                                                 to={ContainerDetail}
                                                 params={{ id: c.Id.slice(0, 12) }}
+                                                search={{ scope }}
                                                 class={css.nameLink}
                                             >
                                                 {name}

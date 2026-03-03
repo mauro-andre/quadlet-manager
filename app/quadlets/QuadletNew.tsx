@@ -1,7 +1,8 @@
-import type { ActionArgs } from "velojs";
+import type { LoaderArgs, ActionArgs } from "velojs";
 import { Link } from "velojs";
-import { useNavigate } from "velojs/hooks";
+import { useLoader, useNavigate } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
+import type { Scope } from "../modules/auth/auth.types.js";
 import { QuadletEditor } from "../components/QuadletEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { toast } from "../components/toast.js";
@@ -28,20 +29,32 @@ Gateway=
 `,
 };
 
+interface QuadletNewData {
+    hasSudo: boolean;
+}
+
+export const loader = async ({ c }: LoaderArgs) => {
+    const user = c.get("user");
+    return { hasSudo: user?.hasSudo ?? false } satisfies QuadletNewData;
+};
+
 export const action_create = async ({
-    body,
-}: ActionArgs<{ filename: string; content: string }>) => {
+    body, c,
+}: ActionArgs<{ filename: string; content: string; scope: Scope }>) => {
     const { createQuadlet } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
-    await createQuadlet(body.filename, body.content);
+    const user = c!.get("user");
+    await createQuadlet(body.filename, body.content, body.scope, user);
     return { ok: true, filename: body.filename };
 };
 
 export const Component = () => {
     const navigate = useNavigate();
+    const { data } = useLoader<QuadletNewData>();
     const name = useSignal("");
     const type = useSignal("container");
+    const scope = useSignal<Scope>("user");
     const content = useSignal(TEMPLATES.container!);
 
     const handleTypeChange = (e: Event) => {
@@ -53,9 +66,9 @@ export const Component = () => {
     const handleCreate = async () => {
         const filename = `${name.value}.${type.value}`;
         try {
-            await action_create({ body: { filename, content: content.value } });
+            await action_create({ body: { filename, content: content.value, scope: scope.value } });
             toast("Quadlet created");
-            navigate(`/quadlets/${filename}`);
+            navigate(`/quadlets/${filename}?scope=${scope.value}`);
         } catch {
             toast("Failed to create quadlet", "error");
         }
@@ -99,6 +112,21 @@ export const Component = () => {
                                 </option>
                                 <option value="network">.network</option>
                                 <option value="volume">.volume</option>
+                            </select>
+                        </div>
+                        <div class={css.field}>
+                            <label class={css.label}>Scope</label>
+                            <select
+                                class={css.select}
+                                value={scope.value}
+                                onChange={(e) => {
+                                    scope.value = (e.target as HTMLSelectElement).value as Scope;
+                                }}
+                            >
+                                <option value="user">User</option>
+                                {data.value?.hasSudo && (
+                                    <option value="system">System</option>
+                                )}
                             </select>
                         </div>
                     </div>

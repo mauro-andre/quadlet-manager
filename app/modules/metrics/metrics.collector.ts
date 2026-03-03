@@ -1,8 +1,12 @@
 import type { MetricPoint } from "./metrics.types.js";
 import type { MetricsStore } from "./metrics.store.js";
+import type { Scope } from "../auth/auth.types.js";
 
 const POLL_INTERVAL = 5_000; // 5 seconds
 const PURGE_INTERVAL = 3600; // 1 hour
+
+// The collector polls the default scope (based on the server process user)
+const defaultScope: Scope = (process.getuid?.() ?? 0) === 0 ? "system" : "user";
 
 interface CpuSnapshot {
     cpuNano: number;
@@ -23,7 +27,7 @@ export function startCollector(store: MetricsStore): void {
             );
 
             const now = Math.floor(Date.now() / 1000);
-            const stats = await getAllContainerStats();
+            const stats = await getAllContainerStats(defaultScope);
 
             for (const s of stats) {
                 // Calculate instantaneous CPU % from deltas
@@ -65,7 +69,7 @@ export function startCollector(store: MetricsStore): void {
 
             // Purge metrics for removed containers every hour
             if (now - lastPurge >= PURGE_INTERVAL) {
-                const allContainers = await listContainers(true);
+                const allContainers = await listContainers(defaultScope);
                 const activeIds = new Set(allContainers.map((c) => c.Id));
                 const removed = store.purgeContainers(activeIds);
                 if (removed > 0) {

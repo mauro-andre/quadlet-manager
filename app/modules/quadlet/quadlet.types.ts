@@ -1,3 +1,5 @@
+import type { Scope } from "../auth/auth.types.js";
+
 export type QuadletType = "container" | "network" | "volume";
 
 export interface QuadletFile {
@@ -7,6 +9,7 @@ export interface QuadletFile {
     path: string;
     content: string;
     serviceName: string;
+    scope: Scope;
 }
 
 export interface QuadletListItem {
@@ -15,4 +18,5 @@ export interface QuadletListItem {
     filename: string;
     serviceName: string;
     activeState: string;
+    scope: Scope;
 }

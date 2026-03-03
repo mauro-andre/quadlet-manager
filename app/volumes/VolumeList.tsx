@@ -2,7 +2,9 @@ import type { LoaderArgs, ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
 import type { PodmanVolume, PodmanDfVolume } from "../modules/podman/podman.types.js";
+import type { Scope } from "../modules/auth/auth.types.js";
 import { ActionButton } from "../components/ActionButton.js";
+import { ScopeBadge } from "../components/ScopeBadge.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import * as VolumeDetail from "./VolumeDetail.js";
@@ -13,6 +15,10 @@ function formatBytes(bytes: number): string {
     const units = ["B", "KB", "MB", "GB", "TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
+}
+
+interface VolumeWithScope extends PodmanVolume {
+    scope: Scope;
 }
 
 function isAnonymous(vol: PodmanVolume): boolean {
@@ -27,17 +33,18 @@ function displayName(vol: PodmanVolume): string {
 }
 
 interface VolumeListData {
-    volumes: PodmanVolume[];
+    volumes: VolumeWithScope[];
     dfMap: Record<string, PodmanDfVolume>;
 }
 
-export const loader = async (_args: LoaderArgs) => {
-    const { listVolumes, getDiskUsage } = await import(
+export const loader = async ({ c }: LoaderArgs) => {
+    const { listAllVolumes, getDiskUsage } = await import(
         "../modules/podman/podman.client.js"
     );
+    const user = c.get("user");
     const [volumes, df] = await Promise.all([
-        listVolumes().catch(() => [] as PodmanVolume[]),
-        getDiskUsage().catch(() => null),
+        listAllVolumes(user).catch(() => [] as VolumeWithScope[]),
+        getDiskUsage("user", user.uid).catch(() => null),
     ]);
 
     const dfMap: Record<string, PodmanDfVolume> = {};
@@ -51,12 +58,13 @@ export const loader = async (_args: LoaderArgs) => {
 };
 
 export const action_remove = async ({
-    body,
-}: ActionArgs<{ name: string }>) => {
+    body, c,
+}: ActionArgs<{ name: string; scope: Scope }>) => {
     const { removeVolume } = await import(
         "../modules/podman/podman.client.js"
     );
-    await removeVolume(body.name);
+    const user = c!.get("user");
+    await removeVolume(body.name, body.scope, user.uid);
     return { ok: true };
 };
 
@@ -86,6 +94,7 @@ export const Component = () => {
                         <thead>
                             <tr>
                                 <th class={css.th}>Name</th>
+                                <th class={css.th}>Scope</th>
                                 <th class={css.th}>Driver</th>
                                 <th class={css.th}>Size</th>
                                 <th class={css.th}>Status</th>
@@ -98,15 +107,19 @@ export const Component = () => {
                                 const df = dfMap[vol.Name];
                                 const inUse = (df?.Links ?? 0) > 0;
                                 return (
-                                    <tr key={vol.Name}>
+                                    <tr key={`${vol.scope}-${vol.Name}`}>
                                         <td class={css.td}>
                                             <Link
                                                 to={VolumeDetail}
                                                 params={{ name: vol.Name }}
+                                                search={{ scope: vol.scope }}
                                                 class={isAnonymous(vol) ? css.anonName : css.nameLink}
                                             >
                                                 {displayName(vol)}
                                             </Link>
+                                        </td>
+                                        <td class={css.td}>
+                                            <ScopeBadge scope={vol.scope} />
                                         </td>
                                         <td class={css.td}>{vol.Driver}</td>
                                         <td class={css.td}>
@@ -127,7 +140,7 @@ export const Component = () => {
                                                     variant="danger"
                                                     onClick={async () => {
                                                         if (await confirm(`Remove volume ${displayName(vol)}?`, { confirmLabel: "Remove" }))
-                                                            run(action_remove({ body: { name: vol.Name } }), "Volume removed");
+                                                            run(action_remove({ body: { name: vol.Name, scope: vol.scope } }), "Volume removed");
                                                     }}
                                                 />
                                             </div>
