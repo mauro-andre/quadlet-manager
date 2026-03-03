@@ -398,8 +398,55 @@ export const select = style({
 export const inlineFormActions = style({
     display: "flex",
     gap: vars.space.sm,
-    alignItems: "flex-end",
-    paddingBottom: "1px",
+    justifyContent: "flex-end",
+    marginTop: vars.space.md,
+});
+
+export const inlineFormOptions = style({
+    display: "flex",
+    gap: vars.space.lg,
+    marginTop: vars.space.md,
+});
+
+export const checkboxLabel = style({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: vars.space.xs,
+    fontSize: vars.fontSize.sm,
+    cursor: "pointer",
+    userSelect: "none",
+});
+
+export const tlsBadge = style({
+    display: "inline-flex",
+    alignItems: "center",
+    fontSize: "10px",
+    fontWeight: 600,
+    padding: `1px ${vars.space.xs}`,
+    borderRadius: vars.radius.sm,
+    marginLeft: vars.space.xs,
+    backgroundColor: "rgba(81, 207, 102, 0.15)",
+    color: vars.color.success,
+    verticalAlign: "middle",
+});
+
+export const httpBadge = style({
+    display: "inline-flex",
+    alignItems: "center",
+    fontSize: "10px",
+    fontWeight: 600,
+    padding: `1px ${vars.space.xs}`,
+    borderRadius: vars.radius.sm,
+    marginLeft: vars.space.xs,
+    backgroundColor: vars.color.bgSurfaceActive,
+    color: vars.color.textMuted,
+    verticalAlign: "middle",
+});
+
+export const httpsIndicator = style({
+    fontSize: vars.fontSize.xs,
+    color: vars.color.textMuted,
+    marginLeft: vars.space.xs,
 });
 
 // ── Settings section ──────────────────────────────────────────

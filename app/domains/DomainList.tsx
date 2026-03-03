@@ -2,7 +2,7 @@ import type { LoaderArgs, ActionArgs } from "velojs";
 import { useLoader } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
-import type { ProxyConfig, DomainMapping, SslMode, ContainerOption } from "../modules/proxy/proxy.types.js";
+import type { ProxyConfig, DomainMapping, SslMode, ContainerOption, TargetType } from "../modules/proxy/proxy.types.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
@@ -53,13 +53,20 @@ export const action_disable = async ({ c }: ActionArgs<Record<string, never>>) =
 
 export const action_add = async ({
     body, c,
-}: ActionArgs<{ domain: string; containerName: string; containerPort: number }>) => {
+}: ActionArgs<{
+    domain: string;
+    containerName: string;
+    containerPort: number;
+    targetType: TargetType;
+    tls: boolean;
+    backendHttps: boolean;
+}>) => {
     const { proxyStore } = await import("../modules/proxy/proxy.store.js");
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
     const user = c!.get("user");
-    proxyStore.addDomain(body.domain, body.containerName, body.containerPort);
+    proxyStore.addDomain(body.domain, body.containerName, body.containerPort, body.targetType, body.tls, body.backendHttps);
     await regenerateCaddyfile(user);
     return { ok: true };
 };
@@ -71,13 +78,16 @@ export const action_update = async ({
     domain: string;
     containerName: string;
     containerPort: number;
+    targetType: TargetType;
+    tls: boolean;
+    backendHttps: boolean;
 }>) => {
     const { proxyStore } = await import("../modules/proxy/proxy.store.js");
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
     const user = c!.get("user");
-    proxyStore.updateDomain(body.id, body.domain, body.containerName, body.containerPort);
+    proxyStore.updateDomain(body.id, body.domain, body.containerName, body.containerPort, body.targetType, body.tls, body.backendHttps);
     await regenerateCaddyfile(user);
     return { ok: true };
 };
@@ -130,6 +140,9 @@ export const Component = () => {
     const formContainer = useSignal("");
     const formPort = useSignal("");
     const formPortManual = useSignal(false);
+    const formTargetType = useSignal<TargetType>("container");
+    const formTls = useSignal(true);
+    const formBackendHttps = useSignal(false);
     const containers = useSignal<ContainerOption[]>([]);
 
     // Derive UI state from loaded data
@@ -216,6 +229,9 @@ export const Component = () => {
         formContainer.value = "";
         formPort.value = "";
         formPortManual.value = false;
+        formTargetType.value = "container";
+        formTls.value = true;
+        formBackendHttps.value = false;
         showAddForm.value = true;
         fetchContainers();
     };
@@ -225,7 +241,10 @@ export const Component = () => {
         formDomain.value = d.domain;
         formContainer.value = d.containerName;
         formPort.value = String(d.containerPort);
-        formPortManual.value = false;
+        formPortManual.value = d.targetType === "host";
+        formTargetType.value = d.targetType;
+        formTls.value = d.tls;
+        formBackendHttps.value = d.backendHttps;
         showAddForm.value = true;
         fetchContainers();
     };
@@ -237,11 +256,19 @@ export const Component = () => {
 
     const handleSaveDomain = () => {
         const domain = formDomain.value.trim();
-        const containerName = formContainer.value.trim();
+        const containerName = formTargetType.value === "container" ? formContainer.value.trim() : "";
         const containerPort = parseInt(formPort.value, 10);
+        const targetType = formTargetType.value;
+        const tls = formTls.value;
+        const backendHttps = formBackendHttps.value;
 
-        if (!domain || !containerName || !containerPort) {
-            toast("All fields are required", "error");
+        if (!domain || !containerPort) {
+            toast("Domain and port are required", "error");
+            return;
+        }
+
+        if (targetType === "container" && !containerName) {
+            toast("Container is required", "error");
             return;
         }
 
@@ -253,13 +280,16 @@ export const Component = () => {
                         domain,
                         containerName,
                         containerPort,
+                        targetType,
+                        tls,
+                        backendHttps,
                     },
                 }),
                 `Domain ${domain} updated`
             );
         } else {
             run(
-                action_add({ body: { domain, containerName, containerPort } }),
+                action_add({ body: { domain, containerName, containerPort, targetType, tls, backendHttps } }),
                 `Domain ${domain} added`
             );
         }
@@ -480,35 +510,57 @@ export const Component = () => {
                             />
                         </div>
                         <div class={css.inlineFormField}>
-                            <div class={css.inlineFormLabel}>Container</div>
+                            <div class={css.inlineFormLabel}>Target</div>
                             <select
                                 class={css.select}
-                                value={formContainer.value}
+                                value={formTargetType.value}
                                 onChange={(e) => {
-                                    formContainer.value = (e.target as HTMLSelectElement).value;
-                                    // Auto-select first port of new container
-                                    const ct = containers.value.find(
-                                        (c) => c.name === (e.target as HTMLSelectElement).value
-                                    );
-                                    if (ct?.ports.length) {
-                                        formPort.value = String(ct.ports[0]);
-                                        formPortManual.value = false;
+                                    const val = (e.target as HTMLSelectElement).value as TargetType;
+                                    formTargetType.value = val;
+                                    if (val === "host") {
+                                        formContainer.value = "";
+                                        formPortManual.value = true;
                                     } else {
-                                        formPort.value = "";
+                                        formPortManual.value = false;
+                                        formBackendHttps.value = false;
                                     }
                                 }}
                             >
-                                <option value="">Select container...</option>
-                                {containers.value.map((ct) => (
-                                    <option key={ct.id} value={ct.name}>
-                                        {ct.name}
-                                    </option>
-                                ))}
+                                <option value="container">Container</option>
+                                <option value="host">Host Service</option>
                             </select>
                         </div>
+                        {formTargetType.value === "container" && (
+                            <div class={css.inlineFormField}>
+                                <div class={css.inlineFormLabel}>Container</div>
+                                <select
+                                    class={css.select}
+                                    value={formContainer.value}
+                                    onChange={(e) => {
+                                        formContainer.value = (e.target as HTMLSelectElement).value;
+                                        const ct = containers.value.find(
+                                            (c) => c.name === (e.target as HTMLSelectElement).value
+                                        );
+                                        if (ct?.ports.length) {
+                                            formPort.value = String(ct.ports[0]);
+                                            formPortManual.value = false;
+                                        } else {
+                                            formPort.value = "";
+                                        }
+                                    }}
+                                >
+                                    <option value="">Select container...</option>
+                                    {containers.value.map((ct) => (
+                                        <option key={ct.id} value={ct.name}>
+                                            {ct.name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        )}
                         <div class={css.inlineFormField}>
                             <div class={css.inlineFormLabel}>Port</div>
-                            {!formPortManual.value && selectedPorts.length > 0 ? (
+                            {formTargetType.value === "container" && !formPortManual.value && selectedPorts.length > 0 ? (
                                 <select
                                     class={css.select}
                                     value={formPort.value}
@@ -537,20 +589,46 @@ export const Component = () => {
                                     onInput={(e) => {
                                         formPort.value = (e.target as HTMLInputElement).value;
                                     }}
-                                    placeholder="80"
+                                    placeholder={formTargetType.value === "host" ? "3000" : "80"}
                                     min="1"
                                     max="65535"
                                 />
                             )}
                         </div>
-                        <div class={css.inlineFormActions}>
-                            <button class={css.cancelButton} onClick={closeForm}>
-                                Cancel
-                            </button>
-                            <button class={css.submitButton} onClick={handleSaveDomain}>
-                                Save
-                            </button>
-                        </div>
+                    </div>
+                    <div class={css.inlineFormOptions}>
+                        {config?.sslMode !== "none" && (
+                            <label class={css.checkboxLabel}>
+                                <input
+                                    type="checkbox"
+                                    checked={formTls.value}
+                                    onChange={(e) => {
+                                        formTls.value = (e.target as HTMLInputElement).checked;
+                                    }}
+                                />
+                                TLS
+                            </label>
+                        )}
+                        {formTargetType.value === "host" && (
+                            <label class={css.checkboxLabel}>
+                                <input
+                                    type="checkbox"
+                                    checked={formBackendHttps.value}
+                                    onChange={(e) => {
+                                        formBackendHttps.value = (e.target as HTMLInputElement).checked;
+                                    }}
+                                />
+                                Backend HTTPS
+                            </label>
+                        )}
+                    </div>
+                    <div class={css.inlineFormActions}>
+                        <button class={css.cancelButton} onClick={closeForm}>
+                            Cancel
+                        </button>
+                        <button class={css.submitButton} onClick={handleSaveDomain}>
+                            Save
+                        </button>
                     </div>
                 </div>
             )}
@@ -566,7 +644,7 @@ export const Component = () => {
                         <thead>
                             <tr>
                                 <th class={css.th}>Domain</th>
-                                <th class={css.th}>Container</th>
+                                <th class={css.th}>Target</th>
                                 <th class={css.th}>Port</th>
                                 <th class={css.th}>Status</th>
                                 <th class={css.th}>Actions</th>
@@ -574,22 +652,39 @@ export const Component = () => {
                         </thead>
                         <tbody>
                             {domains.map((d) => {
-                                const ct = containers.value.find(
-                                    (c) => c.name === d.containerName
-                                );
+                                const ct = d.targetType === "container"
+                                    ? containers.value.find((c) => c.name === d.containerName)
+                                    : null;
                                 const onCaddyNetwork = ct?.networks.includes("caddy") ?? false;
+                                const useTls = config?.sslMode !== "none" && d.tls;
 
                                 return (
                                     <tr key={d.id}>
                                         <td class={css.td}>
                                             <span class={css.domainName}>{d.domain}</span>
+                                            {config?.sslMode !== "none" && (
+                                                useTls
+                                                    ? <span class={css.tlsBadge}>TLS</span>
+                                                    : <span class={css.httpBadge}>HTTP</span>
+                                            )}
                                         </td>
                                         <td class={css.td}>
-                                            {d.containerName}
-                                            {ct && !onCaddyNetwork && (
-                                                <div class={css.networkWarning}>
-                                                    Not on caddy network
-                                                </div>
+                                            {d.targetType === "host" ? (
+                                                <>
+                                                    Host :{d.containerPort}
+                                                    {d.backendHttps && (
+                                                        <span class={css.httpsIndicator}>(HTTPS)</span>
+                                                    )}
+                                                </>
+                                            ) : (
+                                                <>
+                                                    {d.containerName}
+                                                    {ct && !onCaddyNetwork && (
+                                                        <div class={css.networkWarning}>
+                                                            Not on caddy network
+                                                        </div>
+                                                    )}
+                                                </>
                                             )}
                                         </td>
                                         <td class={css.td}>{d.containerPort}</td>

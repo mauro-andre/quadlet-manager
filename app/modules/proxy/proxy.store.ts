@@ -1,7 +1,7 @@
 import Database from "better-sqlite3";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { ProxyConfig, DomainMapping, SslMode } from "./proxy.types.js";
+import type { ProxyConfig, DomainMapping, SslMode, TargetType } from "./proxy.types.js";
 
 export class ProxyStore {
     private db: Database.Database;
@@ -17,6 +17,7 @@ export class ProxyStore {
         this.db.pragma("synchronous = NORMAL");
 
         this.createTables();
+        this.migrate();
     }
 
     private createTables(): void {
@@ -39,6 +40,22 @@ export class ProxyStore {
                 enabled         INTEGER NOT NULL DEFAULT 1
             );
         `);
+    }
+
+    private migrate(): void {
+        const columns = this.db
+            .pragma("table_info(domains)") as Array<{ name: string }>;
+        const colNames = new Set(columns.map((c) => c.name));
+
+        if (!colNames.has("target_type")) {
+            this.db.exec(`ALTER TABLE domains ADD COLUMN target_type TEXT NOT NULL DEFAULT 'container'`);
+        }
+        if (!colNames.has("tls")) {
+            this.db.exec(`ALTER TABLE domains ADD COLUMN tls INTEGER NOT NULL DEFAULT 1`);
+        }
+        if (!colNames.has("backend_https")) {
+            this.db.exec(`ALTER TABLE domains ADD COLUMN backend_https INTEGER NOT NULL DEFAULT 0`);
+        }
     }
 
     getConfig(): ProxyConfig {
@@ -73,13 +90,16 @@ export class ProxyStore {
 
     listDomains(): DomainMapping[] {
         const rows = this.db.prepare(
-            `SELECT id, domain, container_name, container_port, enabled FROM domains ORDER BY domain`
+            `SELECT id, domain, container_name, container_port, enabled, target_type, tls, backend_https FROM domains ORDER BY domain`
         ).all() as Array<{
             id: number;
             domain: string;
             container_name: string;
             container_port: number;
             enabled: number;
+            target_type: TargetType;
+            tls: number;
+            backend_https: number;
         }>;
 
         return rows.map((r) => ({
@@ -88,14 +108,24 @@ export class ProxyStore {
             containerName: r.container_name,
             containerPort: r.container_port,
             enabled: r.enabled === 1,
+            targetType: r.target_type,
+            tls: r.tls === 1,
+            backendHttps: r.backend_https === 1,
         }));
     }
 
-    addDomain(domain: string, containerName: string, containerPort: number): DomainMapping {
+    addDomain(
+        domain: string,
+        containerName: string,
+        containerPort: number,
+        targetType: TargetType = "container",
+        tls: boolean = true,
+        backendHttps: boolean = false,
+    ): DomainMapping {
         const result = this.db.prepare(`
-            INSERT INTO domains (domain, container_name, container_port, enabled)
-            VALUES (?, ?, ?, 1)
-        `).run(domain, containerName, containerPort);
+            INSERT INTO domains (domain, container_name, container_port, enabled, target_type, tls, backend_https)
+            VALUES (?, ?, ?, 1, ?, ?, ?)
+        `).run(domain, containerName, containerPort, targetType, tls ? 1 : 0, backendHttps ? 1 : 0);
 
         return {
             id: Number(result.lastInsertRowid),
@@ -103,13 +133,24 @@ export class ProxyStore {
             containerName,
             containerPort,
             enabled: true,
+            targetType,
+            tls,
+            backendHttps,
         };
     }
 
-    updateDomain(id: number, domain: string, containerName: string, containerPort: number): void {
+    updateDomain(
+        id: number,
+        domain: string,
+        containerName: string,
+        containerPort: number,
+        targetType: TargetType = "container",
+        tls: boolean = true,
+        backendHttps: boolean = false,
+    ): void {
         this.db.prepare(`
-            UPDATE domains SET domain = ?, container_name = ?, container_port = ? WHERE id = ?
-        `).run(domain, containerName, containerPort, id);
+            UPDATE domains SET domain = ?, container_name = ?, container_port = ?, target_type = ?, tls = ?, backend_https = ? WHERE id = ?
+        `).run(domain, containerName, containerPort, targetType, tls ? 1 : 0, backendHttps ? 1 : 0, id);
     }
 
     deleteDomain(id: number): void {

@@ -7,12 +7,17 @@ export interface ProxyConfig {
     keyPath: string | null;
 }
 
+export type TargetType = "container" | "host";
+
 export interface DomainMapping {
     id: number;
     domain: string;
     containerName: string;
     containerPort: number;
     enabled: boolean;
+    targetType: TargetType;
+    tls: boolean;
+    backendHttps: boolean;
 }
 
 export interface ContainerOption {

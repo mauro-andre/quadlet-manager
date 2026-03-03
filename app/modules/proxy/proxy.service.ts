@@ -45,27 +45,57 @@ export function generateCaddyfile(domains: DomainMapping[], config: ProxyConfig)
 `;
     }
 
-    const blocks = enabled.map((d) => {
-        const upstream = `${d.containerName}:${d.containerPort}`;
+    const parts: string[] = [];
 
-        switch (config.sslMode) {
-            case "letsencrypt":
-                return `${d.domain} {
-    reverse_proxy ${upstream}
-}`;
-            case "custom":
-                return `${d.domain} {
-    tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem
-    reverse_proxy ${upstream}
-}`;
-            case "none":
-                return `http://${d.domain} {
-    reverse_proxy ${upstream}
-}`;
+    // Custom SSL mode needs auto_https off so Caddy doesn't try to get certs for all domains
+    if (config.sslMode === "custom") {
+        parts.push(`{
+    auto_https off
+}`);
+    }
+
+    for (const d of enabled) {
+        // Determine upstream
+        const host = d.targetType === "host"
+            ? "host.containers.internal"
+            : d.containerName;
+
+        let reverseProxyLine: string;
+        if (d.targetType === "host" && d.backendHttps) {
+            reverseProxyLine = `    reverse_proxy https://${host}:${d.containerPort} {
+        transport http {
+            tls_insecure_skip_verify
         }
-    });
+    }`;
+        } else {
+            reverseProxyLine = `    reverse_proxy ${host}:${d.containerPort}`;
+        }
 
-    return blocks.join("\n\n") + "\n";
+        // Determine if this domain gets TLS
+        const useTls = config.sslMode !== "none" && d.tls;
+
+        let siteAddress: string;
+        let tlsLine = "";
+
+        if (!useTls) {
+            siteAddress = `http://${d.domain}`;
+        } else if (config.sslMode === "custom") {
+            siteAddress = d.domain;
+            tlsLine = "    tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem";
+        } else {
+            // letsencrypt — Caddy handles ACME automatically
+            siteAddress = d.domain;
+        }
+
+        const lines = [`${siteAddress} {`];
+        if (tlsLine) lines.push(tlsLine);
+        lines.push(reverseProxyLine);
+        lines.push("}");
+
+        parts.push(lines.join("\n"));
+    }
+
+    return parts.join("\n\n") + "\n";
 }
 
 // ── Quadlet content generators ────────────────────────────────
@@ -99,6 +129,7 @@ Volume=${dataDir}/certs:/etc/caddy/certs:ro,Z
 Volume=caddy-data.volume:/data
 Volume=caddy-config.volume:/config
 Network=caddy.network
+AddHost=host.containers.internal:host-gateway
 
 [Service]
 Restart=always
