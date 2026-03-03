@@ -1,5 +1,5 @@
 import type { Hono } from "hono";
-import { addRoutes } from "velojs/server";
+import { addRoutes, onServer } from "velojs/server";
 import { MetricsStore } from "./modules/metrics/metrics.store.js";
 import { startCollector } from "./modules/metrics/metrics.collector.js";
 import type { TimeRange } from "./modules/metrics/metrics.types.js";
@@ -8,6 +8,12 @@ import type { AuthUser, Scope } from "./modules/auth/auth.types.js";
 
 const store = new MetricsStore();
 startCollector(store);
+
+// ============================================
+// WebSocket Terminal
+// ============================================
+
+registerTerminalWebSocket();
 
 function getScope(c: { req: { query: (k: string) => string | undefined } }): Scope {
     const s = c.req.query("scope");
@@ -440,6 +446,115 @@ function registerSystemEndpoints(app: Hono) {
 
                 await new Promise((r) => setTimeout(r, 5_000));
             }
+        });
+    });
+}
+
+function parseCookies(cookieHeader?: string): Record<string, string> {
+    const cookies: Record<string, string> = {};
+    if (!cookieHeader) return cookies;
+    for (const pair of cookieHeader.split(";")) {
+        const [key, ...rest] = pair.trim().split("=");
+        if (key) cookies[key] = rest.join("=");
+    }
+    return cookies;
+}
+
+function registerTerminalWebSocket() {
+    onServer(async (httpServer) => {
+        const { WebSocketServer } = await import("ws");
+        const { verifyToken } = await import("./modules/auth/auth.service.js");
+        const {
+            createHostTerminal,
+            createContainerTerminal,
+            getSession,
+            destroySession,
+            resizeSession,
+        } = await import("./modules/terminal/terminal.service.js");
+
+        const wss = new WebSocketServer({ noServer: true });
+
+        httpServer.on("upgrade", async (req, socket, head) => {
+            const url = new URL(req.url!, `http://${req.headers.host}`);
+            if (url.pathname !== "/api/terminal") return;
+
+            // Auth: parse session cookie, verify JWT
+            const token = parseCookies(req.headers.cookie).session;
+            if (!token) { socket.destroy(); return; }
+
+            let user: AuthUser;
+            try {
+                user = await verifyToken(token);
+            } catch {
+                socket.destroy();
+                return;
+            }
+
+            wss.handleUpgrade(req, socket, head, (ws) => {
+                const type = url.searchParams.get("type") || "host";
+                const containerName = url.searchParams.get("name") || "";
+                const scope = (url.searchParams.get("scope") || "user") as Scope;
+
+                let sessionId: string | null = null;
+
+                ws.on("message", (raw) => {
+                    let msg: { type: string; data?: string; cols?: number; rows?: number };
+                    try {
+                        msg = JSON.parse(raw.toString());
+                    } catch {
+                        return;
+                    }
+
+                    // First resize message triggers PTY creation
+                    if (msg.type === "resize" && msg.cols && msg.rows) {
+                        if (!sessionId) {
+                            // Create PTY session
+                            const session =
+                                type === "container" && containerName
+                                    ? createContainerTerminal(user, containerName, scope, msg.cols, msg.rows)
+                                    : createHostTerminal(user, msg.cols, msg.rows);
+
+                            sessionId = session.id;
+
+                            // PTY stdout -> WebSocket
+                            session.process.stdout?.on("data", (data: Buffer) => {
+                                if (ws.readyState === ws.OPEN) {
+                                    ws.send(JSON.stringify({ type: "data", data: data.toString() }));
+                                }
+                            });
+
+                            // PTY stderr -> WebSocket (merge with stdout)
+                            session.process.stderr?.on("data", (data: Buffer) => {
+                                if (ws.readyState === ws.OPEN) {
+                                    ws.send(JSON.stringify({ type: "data", data: data.toString() }));
+                                }
+                            });
+
+                            // PTY exit -> WebSocket
+                            session.process.on("exit", (code) => {
+                                if (ws.readyState === ws.OPEN) {
+                                    ws.send(JSON.stringify({ type: "exit", code: code ?? 0 }));
+                                    ws.close();
+                                }
+                            });
+                        } else {
+                            resizeSession(sessionId, msg.cols, msg.rows);
+                        }
+                    }
+
+                    // Forward terminal input to PTY
+                    if (msg.type === "data" && msg.data && sessionId) {
+                        const session = getSession(sessionId);
+                        if (session?.process.stdin?.writable) {
+                            session.process.stdin.write(msg.data);
+                        }
+                    }
+                });
+
+                ws.on("close", () => {
+                    if (sessionId) destroySession(sessionId);
+                });
+            });
         });
     });
 }

@@ -7,7 +7,8 @@ No existing tool covers this gap — Portainer doesn't support Quadlets, Cockpit
 ## Features
 
 - **Dashboard** — System overview with real-time CPU/memory graphs, container stats, and disk usage
-- **Containers** — List, inspect, start/stop/restart, and monitor containers with live metrics
+- **Containers** — List, inspect, start/stop/restart, and monitor containers with live metrics and logs
+- **Web Terminal** — Integrated terminal for host shell access and `podman exec` into containers, with full PTY support
 - **Quadlets** — Create, edit, and delete `.container`, `.network`, `.volume` files with a built-in editor
 - **Images** — Browse local images, pull new ones with real-time progress tracking, remove unused images
 - **Volumes** — View and manage volumes with usage information
@@ -18,6 +19,7 @@ No existing tool covers this gap — Portainer doesn't support Quadlets, Cockpit
 ## Requirements
 
 - **Node.js** 20+
+- **Python 3** (for PAM authentication and terminal PTY)
 - **Podman** installed and running
 - **systemd** (systemctl available)
 

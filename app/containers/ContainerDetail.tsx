@@ -16,6 +16,7 @@ import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import * as ContainerList from "./ContainerList.js";
 import * as css from "./ContainerDetail.css.js";
+import * as tcss from "../components/Terminal.css.js";
 
 interface ContainerDetailData {
     container: PodmanContainerInspect;
@@ -151,6 +152,16 @@ export const Component = () => {
                             }
                         />
                     </div>
+                </div>
+
+                <div class={tcss.tabs}>
+                    <span class={tcss.tabActive}>Info</span>
+                    <Link
+                        to={`/containers/${params.id}/terminal?scope=${scope}`}
+                        class={tcss.tab}
+                    >
+                        Terminal
+                    </Link>
                 </div>
 
                 <div class={css.section}>

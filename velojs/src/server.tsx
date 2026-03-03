@@ -19,6 +19,25 @@ export const serverDataStorage = new AsyncLocalStorage<
 (globalThis as any).__veloServerData = serverDataStorage;
 
 // ============================================
+// ON-SERVER HOOK - Access the underlying HTTP server
+// ============================================
+
+type ServerCallback = (server: import("http").Server) => void;
+const serverCallbacks: ServerCallback[] = [];
+let activeServer: import("http").Server | null = null;
+
+export function onServer(fn: ServerCallback): void {
+    if (activeServer) { fn(activeServer); return; }
+    serverCallbacks.push(fn);
+}
+
+function flushServerCallbacks(server: import("http").Server): void {
+    activeServer = server;
+    for (const fn of serverCallbacks) fn(server);
+    serverCallbacks.length = 0;
+}
+
+// ============================================
 // SERVER OPTIONS
 // ============================================
 
@@ -283,6 +302,12 @@ export const createApp = async (routes: AppRoutes): Promise<Hono> => {
     // Action routes (dinâmico)
     registerActionRoutes(app, routes);
 
+    // Dev mode: flush server callbacks using Vite's HTTP server
+    if (process.env.NODE_ENV !== "production" && !activeServer) {
+        const devServer = (globalThis as any).__veloDevServer;
+        if (devServer) flushServerCallbacks(devServer);
+    }
+
     return app;
 };
 
@@ -311,7 +336,8 @@ export const startServer = async (options: StartServerOptions) => {
         }
 
         console.log(`Server running on http://localhost:${port}`);
-        serve({ fetch: app.fetch, port });
+        const server = serve({ fetch: app.fetch, port });
+        flushServerCallbacks(server as unknown as import("http").Server);
     }
 
     return app;

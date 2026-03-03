@@ -917,5 +917,19 @@ export function veloPlugin(config?: VeloConfig): PluginOption[] {
         devServer({
             entry: VIRTUAL_SERVER_ENTRY,
         }),
+        veloWsBridgePlugin(),
     ];
+}
+
+/**
+ * Exposes Vite's HTTP server via globalThis so the app can attach
+ * WebSocket upgrade handlers in dev mode.
+ */
+function veloWsBridgePlugin(): Plugin {
+    return {
+        name: "velo:ws-bridge",
+        configureServer(viteServer) {
+            (globalThis as any).__veloDevServer = viteServer.httpServer;
+        },
+    };
 }
