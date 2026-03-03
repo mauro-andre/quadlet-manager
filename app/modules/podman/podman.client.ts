@@ -265,7 +265,8 @@ export async function removeVolume(name: string, scope: Scope, uid?: number, for
     const socket = getSocketForScope(scope, uid);
     await podmanRequest<unknown>(
         `/volumes/${encodeURIComponent(name)}?force=${force}`,
-        socket
+        socket,
+        "DELETE"
     );
 }
 
