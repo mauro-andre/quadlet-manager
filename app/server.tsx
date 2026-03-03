@@ -34,6 +34,7 @@ addRoutes((app: Hono) => {
     registerSystemEndpoints(app);
     registerPodmanEndpoints(app);
     registerPullEndpoints(app);
+    registerProxyEndpoints(app);
 });
 
 function registerMetricsEndpoints(app: Hono) {
@@ -440,5 +441,26 @@ function registerSystemEndpoints(app: Hono) {
                 await new Promise((r) => setTimeout(r, 5_000));
             }
         });
+    });
+}
+
+function registerProxyEndpoints(app: Hono) {
+    // Running containers with ports and networks (for domain form)
+    app.get("/api/proxy/containers", async (c) => {
+        const { getContainersWithPorts } = await import(
+            "./modules/proxy/proxy.service.js"
+        );
+        const user = getUser(c);
+        const containers = await getContainersWithPorts(user);
+        return c.json(containers);
+    });
+
+    // Sysctl check for port 80 binding
+    app.get("/api/proxy/sysctl", async (c) => {
+        const { checkSysctl } = await import(
+            "./modules/proxy/proxy.service.js"
+        );
+        const result = await checkSysctl();
+        return c.json(result);
     });
 }

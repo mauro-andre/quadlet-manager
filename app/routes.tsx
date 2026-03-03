@@ -15,6 +15,7 @@ import * as ImageList from "./images/ImageList.js";
 import * as ImageDetail from "./images/ImageDetail.js";
 import * as VolumeList from "./volumes/VolumeList.js";
 import * as VolumeDetail from "./volumes/VolumeDetail.js";
+import * as DomainList from "./domains/DomainList.js";
 
 export default [
     {
@@ -40,6 +41,7 @@ export default [
                     { path: "/images/:id", module: ImageDetail },
                     { path: "/volumes", module: VolumeList },
                     { path: "/volumes/:name", module: VolumeDetail },
+                    { path: "/domains", module: DomainList },
                 ],
             },
         ],
