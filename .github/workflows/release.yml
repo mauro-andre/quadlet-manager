@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - run: npm ci
+
+      - run: npm run build
+
+      - name: Prune dev dependencies
+        run: npm prune --omit=dev
+
+      - name: Package tarball
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          DIRNAME="quadlet-manager-${VERSION}"
+          STAGING="/tmp/${DIRNAME}"
+          mkdir -p "${STAGING}"
+          cp -a dist node_modules package.json velojs "${STAGING}/"
+          tar czf "/tmp/quadlet-manager-${VERSION}-linux-x64.tar.gz" -C /tmp "${DIRNAME}"
+
+      - name: Upload release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          gh release upload "${GITHUB_REF_NAME}" "/tmp/quadlet-manager-${VERSION}-linux-x64.tar.gz"
