@@ -314,7 +314,7 @@ function registerSystemEndpoints(app: Hono) {
         const { getSystemCpuPercent, getSystemMemory } = await import(
             "./modules/system/system.stats.js"
         );
-        const { listContainers } = await import(
+        const { listAllContainers } = await import(
             "./modules/podman/podman.client.js"
         );
 
@@ -322,7 +322,7 @@ function registerSystemEndpoints(app: Hono) {
         const [cpu, memory, containers] = await Promise.all([
             getSystemCpuPercent(),
             getSystemMemory(),
-            listContainers("user", user.uid).catch(() => []),
+            listAllContainers(user).catch(() => []),
         ]);
 
         // Filter collector metrics to only include user's containers
@@ -392,7 +392,7 @@ function registerSystemEndpoints(app: Hono) {
         });
     });
 
-    // SSE live system stats — queries user's Podman socket directly
+    // SSE live system stats — queries both user + system Podman sockets
     app.get("/api/system/stats/live", async (c) => {
         const { streamSSE } = await import("hono/streaming");
         const { getSystemCpuPercent, getSystemMemory } = await import(
@@ -410,17 +410,24 @@ function registerSystemEndpoints(app: Hono) {
             stream.onAbort(() => { running = false; });
 
             while (running) {
-                const [cpu, memory, stats] = await Promise.all([
+                const statsFetches = [
+                    getAllContainerStats("user", user.uid).catch(() => []),
+                ];
+                if (user.hasSudo) {
+                    statsFetches.push(getAllContainerStats("system").catch(() => []));
+                }
+                const [cpu, memory, ...statsArrays] = await Promise.all([
                     getSystemCpuPercent(),
                     getSystemMemory(),
-                    getAllContainerStats("user", user.uid).catch(() => []),
+                    ...statsFetches,
                 ]);
 
+                const allStats = statsArrays.flat();
                 let containersCpu = 0;
                 let containersMem = 0;
-                const containersCount = stats.length;
+                const containersCount = allStats.length;
 
-                for (const s of stats) {
+                for (const s of allStats) {
                     let cpuPercent = 0;
                     const prev = prevCpu.get(s.ContainerID);
                     if (prev && prev.systemNano > 0) {

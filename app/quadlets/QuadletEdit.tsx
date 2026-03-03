@@ -103,7 +103,13 @@ export const Component = () => {
 
     const run = (action: Promise<unknown>, msg: string) =>
         action
-            .then(() => { toast(msg); refetch(); })
+            .then((result) => {
+                if (result && typeof result === "object" && "error" in result) {
+                    toast(String((result as { error: string }).error), "error");
+                    return;
+                }
+                toast(msg); refetch();
+            })
             .catch(() => toast("Action failed", "error"));
 
     return (

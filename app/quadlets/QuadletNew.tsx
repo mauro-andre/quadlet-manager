@@ -66,7 +66,11 @@ export const Component = () => {
     const handleCreate = async () => {
         const filename = `${name.value}.${type.value}`;
         try {
-            await action_create({ body: { filename, content: content.value, scope: scope.value } });
+            const result = await action_create({ body: { filename, content: content.value, scope: scope.value } });
+            if (result && typeof result === "object" && "error" in result) {
+                toast(String((result as { error: string }).error), "error");
+                return;
+            }
             toast("Quadlet created");
             navigate(`/quadlets/${filename}?scope=${scope.value}`);
         } catch {

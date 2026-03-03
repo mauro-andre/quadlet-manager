@@ -137,7 +137,15 @@ function extensionToType(ext: string): QuadletType {
 }
 
 function filenameToServiceName(filename: string): string {
-    return basename(filename, extname(filename)) + ".service";
+    const name = basename(filename, extname(filename));
+    const ext = extname(filename);
+    // Podman quadlet generator naming convention:
+    // .container → name.service
+    // .volume   → name-volume.service
+    // .network  → name-network.service
+    if (ext === ".volume") return `${name}-volume.service`;
+    if (ext === ".network") return `${name}-network.service`;
+    return `${name}.service`;
 }
 
 function validateFilename(filename: string): void {
