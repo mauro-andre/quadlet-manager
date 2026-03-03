@@ -40,7 +40,7 @@ command -v systemctl >/dev/null 2>&1 || error "systemctl is not available"
 
 # --- Download ---
 
-TARBALL_URL="https://github.com/${REPO}/releases/download/v${VERSION}/quadlet-manager-${VERSION}-linux-x64.tar.gz"
+TARBALL_URL="https://github.com/${REPO}/releases/download/${VERSION}/quadlet-manager-${VERSION}-linux-x64.tar.gz"
 TARBALL="/tmp/quadlet-manager-${VERSION}-linux-x64.tar.gz"
 
 info "Downloading Quadlet Manager v${VERSION}..."
