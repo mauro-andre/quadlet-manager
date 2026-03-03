@@ -17,6 +17,7 @@ import * as VolumeList from "./volumes/VolumeList.js";
 import * as VolumeDetail from "./volumes/VolumeDetail.js";
 import * as NetworkList from "./networks/NetworkList.js";
 import * as NetworkDetail from "./networks/NetworkDetail.js";
+import * as RegistryList from "./registries/RegistryList.js";
 import * as DomainList from "./domains/DomainList.js";
 import * as HostTerminal from "./terminal/HostTerminal.js";
 import * as ContainerTerminal from "./containers/ContainerTerminal.js";
@@ -47,6 +48,7 @@ export default [
                     { path: "/volumes/:name", module: VolumeDetail },
                     { path: "/networks", module: NetworkList },
                     { path: "/networks/:name", module: NetworkDetail },
+                    { path: "/registries", module: RegistryList },
                     { path: "/domains", module: DomainList },
                     { path: "/terminal", module: HostTerminal },
                     { path: "/containers/:id/terminal", module: ContainerTerminal },
