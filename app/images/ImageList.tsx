@@ -63,7 +63,7 @@ export const action_remove = async ({
         "../modules/podman/podman.client.js"
     );
     const user = c!.get("user");
-    await removeImage(body.id, body.scope, user.uid);
+    await removeImage(body.id, body.scope, user.uid, true);
     return { ok: true };
 };
 

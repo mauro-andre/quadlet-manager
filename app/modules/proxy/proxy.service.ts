@@ -1,4 +1,4 @@
-import { readFile as fsReadFile, writeFile as fsWriteFile, mkdir } from "node:fs/promises";
+import { readFile as fsReadFile, writeFile as fsWriteFile, mkdir, chown } from "node:fs/promises";
 import { join } from "node:path";
 import { execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
@@ -141,12 +141,14 @@ WantedBy=default.target
 
 // ── File helpers (user scope only for proxy) ──────────────────
 
-async function writeProxyFile(path: string, content: string): Promise<void> {
+async function writeProxyFile(path: string, content: string, user?: AuthUser): Promise<void> {
     await fsWriteFile(path, content, "utf-8");
+    if (user) await chown(path, user.uid, user.gid).catch(() => {});
 }
 
-async function ensureDir(dir: string): Promise<void> {
+async function ensureDir(dir: string, user?: AuthUser): Promise<void> {
     await mkdir(dir, { recursive: true });
+    if (user) await chown(dir, user.uid, user.gid).catch(() => {});
 }
 
 // ── Enable / Disable lifecycle ────────────────────────────────
@@ -164,9 +166,9 @@ export async function enableProxy(
     const dataDir = getDataDir();
     const certsDir = join(dataDir, "certs");
 
-    // Ensure data directories
-    await ensureDir(dataDir);
-    await ensureDir(certsDir);
+    // Ensure data directories (owned by the user so Caddy container can read them)
+    await ensureDir(dataDir, user);
+    await ensureDir(certsDir, user);
 
     // Write certs if custom mode
     let certPath: string | null = null;
@@ -174,8 +176,8 @@ export async function enableProxy(
     if (sslMode === "custom" && certContent && keyContent) {
         certPath = join(certsDir, "cert.pem");
         keyPath = join(certsDir, "key.pem");
-        await writeProxyFile(certPath, certContent);
-        await writeProxyFile(keyPath, keyContent);
+        await writeProxyFile(certPath, certContent, user);
+        await writeProxyFile(keyPath, keyContent, user);
     }
 
     // Update config in store
@@ -186,7 +188,7 @@ export async function enableProxy(
     const config = proxyStore.getConfig();
     const domains = proxyStore.listDomains();
     const caddyfileContent = generateCaddyfile(domains, config);
-    await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent);
+    await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent, user);
 
     // Create quadlet files (user scope)
     const quadletFiles = [
@@ -250,8 +252,8 @@ export async function regenerateCaddyfile(user: AuthUser): Promise<void> {
     const dataDir = getDataDir();
 
     const caddyfileContent = generateCaddyfile(domains, config);
-    await ensureDir(dataDir);
-    await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent);
+    await ensureDir(dataDir, user);
+    await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent, user);
 
     // Restart Caddy to pick up changes
     await restartService("caddy.service", "user", user);
