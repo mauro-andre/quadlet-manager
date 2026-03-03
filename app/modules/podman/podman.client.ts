@@ -194,6 +194,48 @@ export async function listNetworks(scope: Scope, uid?: number): Promise<PodmanNe
     return podmanRequest<PodmanNetwork[]>(`/networks/json`, socket);
 }
 
+export async function listAllNetworks(user: AuthUser): Promise<(PodmanNetwork & { scope: Scope })[]> {
+    const [userNetworks, systemNetworks] = await Promise.all([
+        listNetworks("user", user.uid).catch(() => []),
+        user.hasSudo ? listNetworks("system").catch(() => []) : Promise.resolve([]),
+    ]);
+
+    return [
+        ...userNetworks.map((n) => ({ ...n, scope: "user" as Scope })),
+        ...systemNetworks.map((n) => ({ ...n, scope: "system" as Scope })),
+    ];
+}
+
+export async function inspectNetwork(name: string, scope: Scope, uid?: number): Promise<PodmanNetwork> {
+    const socket = getSocketForScope(scope, uid);
+    return podmanRequest<PodmanNetwork>(
+        `/networks/${encodeURIComponent(name)}/json`,
+        socket
+    );
+}
+
+export async function removeNetwork(name: string, scope: Scope, uid?: number): Promise<void> {
+    const socket = getSocketForScope(scope, uid);
+    await podmanRequest<unknown>(
+        `/networks/${encodeURIComponent(name)}`,
+        socket,
+        "DELETE"
+    );
+}
+
+export async function listContainersByNetwork(
+    networkName: string,
+    scope: Scope,
+    uid?: number
+): Promise<PodmanContainer[]> {
+    const socket = getSocketForScope(scope, uid);
+    const filters = encodeURIComponent(JSON.stringify({ network: [networkName] }));
+    return podmanRequest<PodmanContainer[]>(
+        `/containers/json?all=true&filters=${filters}`,
+        socket
+    );
+}
+
 export async function listVolumes(scope: Scope, uid?: number): Promise<PodmanVolume[]> {
     const socket = getSocketForScope(scope, uid);
     return podmanRequest<PodmanVolume[]>(`/volumes/json`, socket);

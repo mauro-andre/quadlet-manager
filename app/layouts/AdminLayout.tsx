@@ -43,6 +43,7 @@ const navItems = [
     { path: "/quadlets", label: "Quadlets" },
     { path: "/images", label: "Images" },
     { path: "/volumes", label: "Volumes" },
+    { path: "/networks", label: "Networks" },
     { path: "/domains", label: "Domains" },
     { path: "/terminal", label: "Terminal" },
 ];
