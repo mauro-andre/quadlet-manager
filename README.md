@@ -25,10 +25,10 @@ No existing tool covers this gap — Portainer doesn't support Quadlets, Cockpit
 
 ## Installation
 
-Run as root:
+Run as root (replace `0.1.0` with the desired version):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mauro-andre/quadlet-manager/main/install.sh | bash -s -- 0.1.0
+curl -fsSL https://github.com/mauro-andre/quadlet-manager/releases/download/0.1.0/install.sh | bash
 ```
 
 This will:
@@ -50,10 +50,10 @@ Access the UI at `http://your-server:3000`.
 
 ## Updating
 
-Run the same command with the new version:
+Run the install command with the new version:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mauro-andre/quadlet-manager/main/install.sh | bash -s -- 0.2.0
+curl -fsSL https://github.com/mauro-andre/quadlet-manager/releases/download/0.2.0/install.sh | bash
 ```
 
 Your data (databases, proxy config, certificates, JWT secret) is preserved between updates.

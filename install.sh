@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+VERSION="0.0.0"
+
 # Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
@@ -22,21 +24,13 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 [[ $EUID -eq 0 ]] || error "This script must be run as root"
 
-VERSION="${1:-}"
-if [[ -z "$VERSION" ]]; then
-    echo "Usage: $0 <version>"
-    echo ""
-    echo "  Install:  curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash -s -- 0.1.0"
-    echo "  Update:   curl -fsSL https://raw.githubusercontent.com/${REPO}/main/install.sh | bash -s -- 0.2.0"
-    exit 1
-fi
-
 command -v node >/dev/null 2>&1 || error "Node.js is not installed. Install Node.js 20+ first: https://nodejs.org"
 NODE_MAJOR=$(node -v | sed 's/v//' | cut -d. -f1)
 [[ $NODE_MAJOR -ge 20 ]] || error "Node.js 20+ is required (found $(node -v))"
 
 command -v podman >/dev/null 2>&1 || error "Podman is not installed"
 command -v systemctl >/dev/null 2>&1 || error "systemctl is not available"
+command -v python3 >/dev/null 2>&1 || error "Python 3 is not installed (required for terminal PTY)"
 
 # --- Download ---
 
