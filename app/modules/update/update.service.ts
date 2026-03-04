@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
@@ -94,10 +94,16 @@ export async function performUpdate(version: string, tarballUrl: string): Promis
             await execFile("cp", ["-a", join(tmpDir, item), join(INSTALL_DIR, item)]).catch(() => {});
         }
 
-        // 5. Cleanup
+        // 5. Stamp installed version into package.json
+        const pkgPath = join(INSTALL_DIR, "package.json");
+        const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
+        pkg.version = version;
+        await writeFile(pkgPath, JSON.stringify(pkg, null, 4) + "\n", "utf-8");
+
+        // 6. Cleanup
         await execFile("rm", ["-rf", tmpDir, tmpArchive]).catch(() => {});
 
-        // 6. Restart service (fire-and-forget — this kills us)
+        // 7. Restart service (fire-and-forget — this kills us)
         const child = spawn("systemctl", ["restart", "quadlet-manager"], {
             detached: true,
             stdio: "ignore",
