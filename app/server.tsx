@@ -522,7 +522,7 @@ function registerTerminalWebSocket() {
 
         const wss = new WebSocketServer({ noServer: true });
 
-        httpServer.on("upgrade", async (req, socket, head) => {
+        httpServer.on("upgrade", (req, socket, head) => {
             const url = new URL(req.url!, `http://${req.headers.host}`);
             if (url.pathname !== "/api/terminal") return;
 
@@ -530,15 +530,9 @@ function registerTerminalWebSocket() {
             const token = parseCookies(req.headers.cookie).session;
             if (!token) { socket.destroy(); return; }
 
-            let user: AuthUser;
-            try {
-                user = await verifyToken(token);
-            } catch {
-                socket.destroy();
-                return;
-            }
-
-            wss.handleUpgrade(req, socket, head, (ws) => {
+            verifyToken(token).then((user) => {
+                if (socket.destroyed) return;
+                wss.handleUpgrade(req, socket, head, (ws) => {
                 const type = url.searchParams.get("type") || "host";
                 const containerName = url.searchParams.get("name") || "";
                 const scope = (url.searchParams.get("scope") || "user") as Scope;
@@ -603,6 +597,7 @@ function registerTerminalWebSocket() {
                     if (sessionId) destroySession(sessionId);
                 });
             });
+            }).catch(() => { socket.destroy(); });
         });
     });
 }

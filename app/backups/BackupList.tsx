@@ -231,42 +231,60 @@ export const Component = () => {
 
     const submitting = useSignal(false);
 
-    // SSE: track running backups and restores
-    const runningSet = useSignal<Set<number>>(new Set(data.value?.runningPolicies ?? []));
-    const restoringSet = useSignal<Set<number>>(new Set());
+    // SSE: track running backups and restores with phase info
+    const runningMap = useSignal<Map<number, string>>(new Map((data.value?.runningPolicies ?? []).map((id: number) => [id, "Running…"])));
+    const restoringMap = useSignal<Map<number, string>>(new Map());
 
     useEffect(() => {
         const es = new EventSource("/api/backups/events");
 
         es.addEventListener("snapshot", (e) => {
             const { running, restoring } = JSON.parse(e.data);
-            runningSet.value = new Set(running);
-            restoringSet.value = new Set(restoring);
+            runningMap.value = new Map(running.map((id: number) => [id, "Running…"]));
+            restoringMap.value = new Map(restoring.map((id: number) => [id, "Restoring…"]));
         });
 
         es.addEventListener("started", (e) => {
             const { policyId } = JSON.parse(e.data);
-            runningSet.value = new Set([...runningSet.value, policyId]);
+            const next = new Map(runningMap.value);
+            next.set(policyId, "Starting…");
+            runningMap.value = next;
+        });
+
+        es.addEventListener("progress", (e) => {
+            const { policyId, phase } = JSON.parse(e.data);
+            const next = new Map(runningMap.value);
+            next.set(policyId, phase);
+            runningMap.value = next;
         });
 
         es.addEventListener("finished", (e) => {
             const { policyId } = JSON.parse(e.data);
-            const next = new Set(runningSet.value);
+            const next = new Map(runningMap.value);
             next.delete(policyId);
-            runningSet.value = next;
+            runningMap.value = next;
             refetch();
         });
 
         es.addEventListener("restore-started", (e) => {
             const { historyId } = JSON.parse(e.data);
-            restoringSet.value = new Set([...restoringSet.value, historyId]);
+            const next = new Map(restoringMap.value);
+            next.set(historyId, "Starting…");
+            restoringMap.value = next;
+        });
+
+        es.addEventListener("restore-progress", (e) => {
+            const { historyId, phase } = JSON.parse(e.data);
+            const next = new Map(restoringMap.value);
+            next.set(historyId, phase);
+            restoringMap.value = next;
         });
 
         es.addEventListener("restore-finished", (e) => {
             const { historyId, status } = JSON.parse(e.data);
-            const next = new Set(restoringSet.value);
+            const next = new Map(restoringMap.value);
             next.delete(historyId);
-            restoringSet.value = next;
+            restoringMap.value = next;
             toast(status === "success" ? "Restore completed" : "Restore failed", status === "success" ? "success" : "error");
         });
 
@@ -683,9 +701,9 @@ export const Component = () => {
                                         </div>
                                     </div>
                                     <div class={css.actionsCell}>
-                                        {runningSet.value.has(p.id) ? (
+                                        {runningMap.value.has(p.id) ? (
                                             <button class={css.runningButton} disabled>
-                                                <span class={css.spinner} /> Running…
+                                                <span class={css.spinner} /> {runningMap.value.get(p.id)}
                                             </button>
                                         ) : (
                                             <ActionButton label="Run Now" onClick={async () => {
@@ -747,9 +765,9 @@ export const Component = () => {
                                                             <td class={css.td}>
                                                                 <div class={css.actionsCell}>
                                                                     {h.status === "success" && (
-                                                                        restoringSet.value.has(h.id) ? (
+                                                                        restoringMap.value.has(h.id) ? (
                                                                             <button class={css.runningButton} disabled>
-                                                                                <span class={css.spinner} /> Restoring…
+                                                                                <span class={css.spinner} /> {restoringMap.value.get(h.id)}
                                                                             </button>
                                                                         ) : (
                                                                             <ActionButton label="Restore" onClick={async () => {

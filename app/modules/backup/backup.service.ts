@@ -1,7 +1,7 @@
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createReadStream } from "node:fs";
-import { writeFile, unlink, stat } from "node:fs/promises";
+import { writeFile, unlink, stat, rename } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
 import { backupStore } from "./backup.store.js";
@@ -20,6 +20,28 @@ function spawnWithStdin(cmd: string, args: string[], inputPath: string, timeout 
         });
         proc.on("error", reject);
         createReadStream(inputPath).pipe(proc.stdin!);
+    });
+}
+
+function rcloneWithProgress(args: string[], onProgress: (line: string) => void): Promise<void> {
+    return new Promise((resolve, reject) => {
+        const proc = spawn("rclone", [...args, "-v", "--stats", "1s", "--stats-one-line"], {
+            stdio: ["ignore", "ignore", "pipe"],
+        });
+        let stderr = "";
+        proc.stderr.on("data", (chunk: Buffer) => {
+            const text = chunk.toString();
+            stderr += text;
+            const match = text.match(/([\d.]+\s?\w+)\s*\/\s*([\d.]+\s?\w+),\s*(\d+)%/);
+            if (match) {
+                onProgress(`${match[1]} / ${match[2]} (${match[3]}%)`);
+            }
+        });
+        proc.on("close", (code) => {
+            if (code === 0) resolve();
+            else reject(new Error(stderr || `rclone exited with code ${code}`));
+        });
+        proc.on("error", reject);
     });
 }
 
@@ -87,13 +109,15 @@ async function dumpRaw(volumeName: string): Promise<string> {
     const filename = backupFilename(volumeName, "raw");
     const tmpPath = join("/tmp", filename);
 
+    // Export as tar, then gzip in-place (gzip replaces file.tar with file.tar.gz)
+    const tarPath = tmpPath.replace(/\.gz$/, "");
     await execFile("podman", [
-        "run", "--rm",
-        "-v", `${volumeName}:/source:ro`,
-        "-v", "/tmp:/backup",
-        "alpine",
-        "tar", "czf", `/backup/${filename}`, "-C", "/source", ".",
-    ], { timeout: 300_000 });
+        "volume", "export", volumeName, "--output", tarPath,
+    ], { timeout: 0 });
+
+    await execFile("gzip", ["-f", tarPath], { timeout: 0 });
+    // gzip produces tarPath.gz, rename to our expected filename
+    await rename(`${tarPath}.gz`, tmpPath).catch(() => {});
 
     return tmpPath;
 }
@@ -109,9 +133,9 @@ async function dumpMongodb(container: string, credentials: string | null): Promi
     }
 
     const { stdout } = await execFile("podman", args, {
-        timeout: 300_000,
+        timeout: 0,
         encoding: "buffer",
-        maxBuffer: 1024 * 1024 * 512,
+        maxBuffer: 1024 * 1024 * 1024,
     });
 
     await writeFile(tmpPath, stdout);
@@ -132,9 +156,9 @@ async function dumpPostgresql(container: string, credentials: string | null, dat
     args.push(container, "pg_dump", "-U", user, "-Fc", db);
 
     const { stdout } = await execFile("podman", args, {
-        timeout: 300_000,
+        timeout: 0,
         encoding: "buffer",
-        maxBuffer: 1024 * 1024 * 512,
+        maxBuffer: 1024 * 1024 * 1024,
     });
 
     await writeFile(tmpPath, stdout);
@@ -153,9 +177,9 @@ async function dumpMysql(container: string, credentials: string | null): Promise
     args.push("--all-databases");
 
     const { stdout } = await execFile("podman", args, {
-        timeout: 300_000,
+        timeout: 0,
         encoding: "buffer",
-        maxBuffer: 1024 * 1024 * 512,
+        maxBuffer: 1024 * 1024 * 1024,
     });
 
     await writeFile(tmpPath, stdout);
@@ -203,8 +227,10 @@ export function getRestoringBackups(): number[] {
 
 export type BackupEvent =
     | { type: "started"; policyId: number }
+    | { type: "progress"; policyId: number; phase: string }
     | { type: "finished"; policyId: number; status: "success" | "error" }
     | { type: "restore-started"; historyId: number }
+    | { type: "restore-progress"; historyId: number; phase: string }
     | { type: "restore-finished"; historyId: number; status: "success" | "error" };
 
 type BackupEventListener = (event: BackupEvent) => void;
@@ -236,6 +262,7 @@ export async function runBackup(policyId: number): Promise<void> {
 
     try {
         // 1. Create dump
+        emit({ type: "progress", policyId, phase: "Dumping data…" });
         tmpPath = await createDump(policy.type, policy.target, policy.credentials, policy.database);
 
         // 2. Get file size
@@ -243,12 +270,13 @@ export async function runBackup(policyId: number): Promise<void> {
         const size = fileStat.size;
 
         // 3. Upload to remote
+        emit({ type: "progress", policyId, phase: "Uploading…" });
         const filename = tmpPath.split("/").pop()!;
         await withRcloneConfig(storage, async (configPath) => {
-            await execFile("rclone", [
-                "--config", configPath,
-                "copy", tmpPath!, `remote:${storage.bucket}/${remotePath}/`,
-            ], { timeout: 300_000 });
+            await rcloneWithProgress(
+                ["--config", configPath, "copy", tmpPath!, `remote:${storage.bucket}/${remotePath}/`],
+                (phase) => emit({ type: "progress", policyId, phase: `Uploading ${phase}` }),
+            );
         });
 
         // 4. Update history + policy status
@@ -294,25 +322,25 @@ export async function restoreBackup(historyId: number): Promise<void> {
 
     try {
         // 1. Download from remote
-        const remoteDir = history.remotePath.substring(0, history.remotePath.lastIndexOf("/"));
+        emit({ type: "restore-progress", historyId, phase: "Downloading…" });
         await withRcloneConfig(storage, async (configPath) => {
-            await execFile("rclone", [
-                "--config", configPath,
-                "copy", `remote:${storage.bucket}/${history.remotePath}`, "/tmp/",
-            ], { timeout: 300_000 });
+            await rcloneWithProgress(
+                ["--config", configPath, "copy", `remote:${storage.bucket}/${history.remotePath}`, "/tmp/"],
+                (phase) => emit({ type: "restore-progress", historyId, phase: `Downloading ${phase}` }),
+            );
         });
 
         // 2. Restore based on type
+        emit({ type: "restore-progress", historyId, phase: "Restoring…" });
         switch (policy.type) {
-            case "raw":
-                await execFile("podman", [
-                    "run", "--rm",
-                    "-v", `${policy.target}:/target`,
-                    "-v", "/tmp:/backup:ro",
-                    "alpine",
-                    "tar", "xzf", `/backup/${filename}`, "-C", "/target",
-                ], { timeout: 300_000 });
+            case "raw": {
+                // Decompress .gz → .tar, then import
+                const tarPath = tmpPath.replace(/\.gz$/, "");
+                await execFile("gunzip", ["-k", "-f", tmpPath], { timeout: 0 });
+                await execFile("podman", ["volume", "import", policy.target, tarPath], { timeout: 0 });
+                await unlink(tarPath).catch(() => {});
                 break;
+            }
 
             case "mongodb": {
                 const mongoArgs = ["exec", "-i", policy.target, "mongorestore", "--archive", "--gzip", "--drop"];
