@@ -9,6 +9,11 @@ import type { AuthUser, Scope } from "./modules/auth/auth.types.js";
 const store = new MetricsStore();
 startCollector(store);
 
+// Start backup scheduler
+import("./modules/backup/backup.service.js").then(({ startScheduler }) => {
+    startScheduler();
+});
+
 // ============================================
 // WebSocket Terminal
 // ============================================
@@ -270,6 +275,32 @@ function registerPullEndpoints(app: Hono) {
             const unsubscribe = pullStore.subscribe((event) => {
                 stream.writeSSE({
                     event: event.type === "error" ? "pull-error" : event.type,
+                    data: JSON.stringify(event),
+                });
+            });
+
+            stream.onAbort(() => { unsubscribe(); });
+            await new Promise<void>(() => {});
+        });
+    });
+
+    // SSE: backup status events
+    app.get("/api/backups/events", async (c) => {
+        const { streamSSE } = await import("hono/streaming");
+        const { subscribe, getRunningPolicies } = await import("./modules/backup/backup.service.js");
+
+        return streamSSE(c, async (stream) => {
+            const running = getRunningPolicies();
+            if (running.length > 0) {
+                await stream.writeSSE({
+                    event: "snapshot",
+                    data: JSON.stringify(running),
+                });
+            }
+
+            const unsubscribe = subscribe((event) => {
+                stream.writeSSE({
+                    event: event.type,
                     data: JSON.stringify(event),
                 });
             });

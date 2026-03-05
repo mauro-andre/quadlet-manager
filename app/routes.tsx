@@ -21,6 +21,7 @@ import * as RegistryList from "./registries/RegistryList.js";
 import * as DomainList from "./domains/DomainList.js";
 import * as HostTerminal from "./terminal/HostTerminal.js";
 import * as ContainerTerminal from "./containers/ContainerTerminal.js";
+import * as BackupList from "./backups/BackupList.js";
 import * as SettingsPage from "./settings/SettingsPage.js";
 
 export default [
@@ -51,6 +52,7 @@ export default [
                     { path: "/networks/:name", module: NetworkDetail },
                     { path: "/registries", module: RegistryList },
                     { path: "/domains", module: DomainList },
+                    { path: "/backups", module: BackupList },
                     { path: "/terminal", module: HostTerminal },
                     { path: "/containers/:id/terminal", module: ContainerTerminal },
                     { path: "/settings", module: SettingsPage },

@@ -46,6 +46,7 @@ const navItems = [
     { path: "/networks", label: "Networks" },
     { path: "/registries", label: "Registries" },
     { path: "/domains", label: "Domains" },
+    { path: "/backups", label: "Backups" },
     { path: "/terminal", label: "Terminal" },
     { path: "/settings", label: "Settings" },
 ];

@@ -32,6 +32,18 @@ command -v podman >/dev/null 2>&1 || error "Podman is not installed"
 command -v systemctl >/dev/null 2>&1 || error "systemctl is not available"
 command -v python3 >/dev/null 2>&1 || error "Python 3 is not installed (required for terminal PTY)"
 
+# --- Install rclone (for backups) ---
+
+if ! command -v rclone >/dev/null 2>&1; then
+    info "Installing rclone (required for backups)..."
+    command -v unzip >/dev/null 2>&1 || {
+        # Try to install unzip (required by rclone installer)
+        command -v dnf >/dev/null 2>&1 && dnf install -y unzip >/dev/null 2>&1
+        command -v apt-get >/dev/null 2>&1 && apt-get install -y unzip >/dev/null 2>&1
+    }
+    curl -fsSL https://rclone.org/install.sh | bash >/dev/null 2>&1 || warn "Failed to install rclone. Backups will not be available."
+fi
+
 # --- Download ---
 
 TARBALL_URL="https://github.com/${REPO}/releases/download/${VERSION}/quadlet-manager-${VERSION}-linux-x64.tar.gz"
