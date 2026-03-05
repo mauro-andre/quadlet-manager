@@ -143,7 +143,10 @@ export const action_runNow = async ({ body }: ActionArgs<{ id: number }>) => {
 
 export const action_restore = async ({ body }: ActionArgs<{ id: number }>) => {
     const { restoreBackup } = await import("../modules/backup/backup.service.js");
-    await restoreBackup(body.id);
+    // Fire-and-forget — restore runs in background
+    restoreBackup(body.id).catch((err) => {
+        console.error(`[backup] Restore ${body.id} failed:`, err.message);
+    });
     return { ok: true };
 };
 
@@ -228,15 +231,17 @@ export const Component = () => {
 
     const submitting = useSignal(false);
 
-    // SSE: track running backup policies
+    // SSE: track running backups and restores
     const runningSet = useSignal<Set<number>>(new Set(data.value?.runningPolicies ?? []));
+    const restoringSet = useSignal<Set<number>>(new Set());
 
     useEffect(() => {
         const es = new EventSource("/api/backups/events");
 
         es.addEventListener("snapshot", (e) => {
-            const ids: number[] = JSON.parse(e.data);
-            runningSet.value = new Set(ids);
+            const { running, restoring } = JSON.parse(e.data);
+            runningSet.value = new Set(running);
+            restoringSet.value = new Set(restoring);
         });
 
         es.addEventListener("started", (e) => {
@@ -250,6 +255,19 @@ export const Component = () => {
             next.delete(policyId);
             runningSet.value = next;
             refetch();
+        });
+
+        es.addEventListener("restore-started", (e) => {
+            const { historyId } = JSON.parse(e.data);
+            restoringSet.value = new Set([...restoringSet.value, historyId]);
+        });
+
+        es.addEventListener("restore-finished", (e) => {
+            const { historyId, status } = JSON.parse(e.data);
+            const next = new Set(restoringSet.value);
+            next.delete(historyId);
+            restoringSet.value = next;
+            toast(status === "success" ? "Restore completed" : "Restore failed", status === "success" ? "success" : "error");
         });
 
         return () => es.close();
@@ -729,11 +747,17 @@ export const Component = () => {
                                                             <td class={css.td}>
                                                                 <div class={css.actionsCell}>
                                                                     {h.status === "success" && (
-                                                                        <ActionButton label="Restore" onClick={async () => {
-                                                                            if (await confirm("Restore this backup? Current data may be overwritten.", { confirmLabel: "Restore" })) {
-                                                                                run(action_restore({ body: { id: h.id } }), "Restore completed", refetch);
-                                                                            }
-                                                                        }} />
+                                                                        restoringSet.value.has(h.id) ? (
+                                                                            <button class={css.runningButton} disabled>
+                                                                                <span class={css.spinner} /> Restoring…
+                                                                            </button>
+                                                                        ) : (
+                                                                            <ActionButton label="Restore" onClick={async () => {
+                                                                                if (await confirm("Restore this backup? Current data may be overwritten.", { confirmLabel: "Restore" })) {
+                                                                                    run(action_restore({ body: { id: h.id } }), "Restoring...", () => {});
+                                                                                }
+                                                                            }} />
+                                                                        )
                                                                     )}
                                                                     <ActionButton label="Delete" variant="danger" onClick={async () => {
                                                                         if (await confirm("Delete this backup from remote storage?", { confirmLabel: "Delete" })) {

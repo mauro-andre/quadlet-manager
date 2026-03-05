@@ -185,6 +185,7 @@ async function createDump(type: BackupType, target: string, credentials: string 
 }
 
 const runningPolicies = new Set<number>();
+const restoringBackups = new Set<number>();
 
 export function isRunning(policyId: number): boolean {
     return runningPolicies.has(policyId);
@@ -194,11 +195,17 @@ export function getRunningPolicies(): number[] {
     return [...runningPolicies];
 }
 
+export function getRestoringBackups(): number[] {
+    return [...restoringBackups];
+}
+
 // ── SSE pub/sub ─────────────────────────────────────────────
 
 export type BackupEvent =
     | { type: "started"; policyId: number }
-    | { type: "finished"; policyId: number; status: "success" | "error" };
+    | { type: "finished"; policyId: number; status: "success" | "error" }
+    | { type: "restore-started"; historyId: number }
+    | { type: "restore-finished"; historyId: number; status: "success" | "error" };
 
 type BackupEventListener = (event: BackupEvent) => void;
 const listeners = new Set<BackupEventListener>();
@@ -268,6 +275,8 @@ export async function runBackup(policyId: number): Promise<void> {
 // ── Restore ──────────────────────────────────────────────────
 
 export async function restoreBackup(historyId: number): Promise<void> {
+    if (restoringBackups.has(historyId)) throw new Error("Restore already in progress");
+
     const history = backupStore.getHistory(historyId);
     if (!history) throw new Error("Backup not found");
 
@@ -276,6 +285,9 @@ export async function restoreBackup(historyId: number): Promise<void> {
 
     const storage = backupStore.getStorage(policy.storageId);
     if (!storage) throw new Error("Storage not found");
+
+    restoringBackups.add(historyId);
+    emit({ type: "restore-started", historyId });
 
     const filename = history.remotePath.split("/").pop()!;
     const tmpPath = join("/tmp", filename);
@@ -338,7 +350,12 @@ export async function restoreBackup(historyId: number): Promise<void> {
                 // systemd will restart the container and Redis loads the dump
                 break;
         }
+        emit({ type: "restore-finished", historyId, status: "success" });
+    } catch (err) {
+        emit({ type: "restore-finished", historyId, status: "error" });
+        throw err;
     } finally {
+        restoringBackups.delete(historyId);
         await unlink(tmpPath).catch(() => {});
     }
 }

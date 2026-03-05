@@ -287,14 +287,15 @@ function registerPullEndpoints(app: Hono) {
     // SSE: backup status events
     app.get("/api/backups/events", async (c) => {
         const { streamSSE } = await import("hono/streaming");
-        const { subscribe, getRunningPolicies } = await import("./modules/backup/backup.service.js");
+        const { subscribe, getRunningPolicies, getRestoringBackups } = await import("./modules/backup/backup.service.js");
 
         return streamSSE(c, async (stream) => {
             const running = getRunningPolicies();
-            if (running.length > 0) {
+            const restoring = getRestoringBackups();
+            if (running.length > 0 || restoring.length > 0) {
                 await stream.writeSSE({
                     event: "snapshot",
-                    data: JSON.stringify(running),
+                    data: JSON.stringify({ running, restoring }),
                 });
             }
 
