@@ -63,11 +63,8 @@ export class BackupStore {
 
     listStorages(): Storage[] {
         return this.db.prepare(
-            `SELECT id, name, endpoint, bucket, region, access_key, secret_key FROM storages ORDER BY name`
-        ).all() as Array<{
-            id: number; name: string; endpoint: string; bucket: string;
-            region: string; access_key: string; secret_key: string;
-        }> as unknown as Storage[];
+            `SELECT id, name, endpoint, bucket, region, access_key AS accessKey, secret_key AS secretKey FROM storages ORDER BY name`
+        ).all() as Storage[];
     }
 
     getStorage(id: number): Storage | undefined {
