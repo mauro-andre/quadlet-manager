@@ -75,6 +75,9 @@ rm -rf "${INSTALL_DIR}/dist" "${INSTALL_DIR}/node_modules" "${INSTALL_DIR}/packa
 tar xzf "$TARBALL" --no-same-owner --strip-components=1 -C "$INSTALL_DIR"
 rm -f "$TARBALL"
 
+# Stamp installed version into package.json
+node -e "const p='${INSTALL_DIR}/package.json';const pkg=JSON.parse(require('fs').readFileSync(p,'utf-8'));pkg.version='${VERSION}';require('fs').writeFileSync(p,JSON.stringify(pkg,null,4)+'\n')"
+
 # --- JWT Secret ---
 
 if [[ ! -f "$ENV_FILE" ]]; then
