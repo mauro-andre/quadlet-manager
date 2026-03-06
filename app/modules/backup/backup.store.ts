@@ -17,6 +17,7 @@ export class BackupStore {
         this.db.pragma("synchronous = NORMAL");
 
         this.createTables();
+        this.migrate();
     }
 
     private createTables(): void {
@@ -57,6 +58,10 @@ export class BackupStore {
                 remote_path TEXT NOT NULL
             );
         `);
+    }
+
+    private migrate(): void {
+        // Future migrations go here
     }
 
     // ── Storages ─────────────────────────────────────────────────
@@ -114,8 +119,8 @@ export class BackupStore {
     listPolicies(): Policy[] {
         const rows = this.db.prepare(`
             SELECT p.id, p.name, p.type, p.target, p.credentials, p.database_name,
-                   p.storage_id, s.name as storage_name, p.frequency, p.retention,
-                   p.enabled, p.last_run_at, p.last_status
+                   p.storage_id, s.name as storage_name,
+                   p.frequency, p.retention, p.enabled, p.last_run_at, p.last_status
             FROM policies p
             LEFT JOIN storages s ON s.id = p.storage_id
             ORDER BY p.name

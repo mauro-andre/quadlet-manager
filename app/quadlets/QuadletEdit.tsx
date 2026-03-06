@@ -4,9 +4,7 @@ import { useLoader, useParams } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { QuadletFile } from "../modules/quadlet/quadlet.types.js";
-import type { Scope } from "../modules/auth/auth.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
-import { ScopeBadge } from "../components/ScopeBadge.js";
 import { QuadletEditor } from "../components/QuadletEditor.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
@@ -20,7 +18,7 @@ interface QuadletEditData {
     activeState: string;
 }
 
-export const loader = async ({ params, query, c }: LoaderArgs) => {
+export const loader = async ({ params, c }: LoaderArgs) => {
     const { getQuadlet } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
@@ -29,9 +27,8 @@ export const loader = async ({ params, query, c }: LoaderArgs) => {
     );
 
     const user = c.get("user");
-    const scope: Scope = query.scope === "system" ? "system" : "user";
-    const quadlet = await getQuadlet(params.name!, scope, user);
-    const status = await getServiceStatus(quadlet.serviceName, scope, user);
+    const quadlet = await getQuadlet(params.name!, user);
+    const status = await getServiceStatus(quadlet.serviceName);
 
     return {
         quadlet,
@@ -41,45 +38,42 @@ export const loader = async ({ params, query, c }: LoaderArgs) => {
 
 export const action_save = async ({
     body, c,
-}: ActionArgs<{ filename: string; content: string; scope: Scope }>) => {
+}: ActionArgs<{ filename: string; content: string }>) => {
     const { saveQuadlet } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
     const user = c!.get("user");
-    await saveQuadlet(body.filename, body.content, body.scope, user);
+    await saveQuadlet(body.filename, body.content, user);
     return { ok: true };
 };
 
 export const action_start = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { startService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await startService(body.serviceName, body.scope, user);
+    await startService(body.serviceName);
     return { ok: true };
 };
 
 export const action_stop = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { stopService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await stopService(body.serviceName, body.scope, user);
+    await stopService(body.serviceName);
     return { ok: true };
 };
 
 export const action_restart = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { restartService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await restartService(body.serviceName, body.scope, user);
+    await restartService(body.serviceName);
     return { ok: true };
 };
 
@@ -99,7 +93,6 @@ export const Component = () => {
 
     const { quadlet, activeState } = data.value;
     const isActive = activeState === "active";
-    const scope = quadlet.scope;
 
     const run = (action: Promise<unknown>, msg: string) =>
         action
@@ -120,7 +113,6 @@ export const Component = () => {
 
                 <div class={css.header}>
                     <h1 class={css.title}>{quadlet.filename}</h1>
-                    <ScopeBadge scope={scope} />
                     <StatusBadge status={activeState} />
                     <div class={css.actions}>
                         {isActive ? (
@@ -129,14 +121,14 @@ export const Component = () => {
                                     label="Stop"
                                     onClick={async () => {
                                         if (await confirm(`Stop ${quadlet.filename}?`, { variant: "warning", confirmLabel: "Stop" }))
-                                            run(action_stop({ body: { serviceName: quadlet.serviceName, scope } }), "Service stopped");
+                                            run(action_stop({ body: { serviceName: quadlet.serviceName } }), "Service stopped");
                                     }}
                                 />
                                 <ActionButton
                                     label="Restart"
                                     onClick={() =>
                                         run(
-                                            action_restart({ body: { serviceName: quadlet.serviceName, scope } }),
+                                            action_restart({ body: { serviceName: quadlet.serviceName } }),
                                             "Service restarted"
                                         )
                                     }
@@ -148,7 +140,7 @@ export const Component = () => {
                                 variant="primary"
                                 onClick={() =>
                                     run(
-                                        action_start({ body: { serviceName: quadlet.serviceName, scope } }),
+                                        action_start({ body: { serviceName: quadlet.serviceName } }),
                                         "Service started"
                                     )
                                 }
@@ -159,7 +151,7 @@ export const Component = () => {
                             variant="primary"
                             onClick={() =>
                                 run(
-                                    action_save({ body: { filename: quadlet.filename, content: content.value, scope } }),
+                                    action_save({ body: { filename: quadlet.filename, content: content.value } }),
                                     "Quadlet saved"
                                 )
                             }
@@ -170,7 +162,7 @@ export const Component = () => {
                 <QuadletEditor content={content} />
 
                 <LogStream
-                    url={`/api/logs/service/${encodeURIComponent(quadlet.serviceName)}?scope=${scope}`}
+                    url={`/api/logs/service/${encodeURIComponent(quadlet.serviceName)}`}
                     title="Service Logs"
                 />
         </div>

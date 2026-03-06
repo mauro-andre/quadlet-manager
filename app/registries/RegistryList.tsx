@@ -1,10 +1,8 @@
 import type { LoaderArgs, ActionArgs } from "velojs";
 import { useSignal } from "@preact/signals";
 import { useLoader } from "velojs/hooks";
-import type { Scope } from "../modules/auth/auth.types.js";
 import type { RegistryEntry } from "../modules/registry/registry.service.js";
 import { ActionButton } from "../components/ActionButton.js";
-import { ScopeBadge } from "../components/ScopeBadge.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import * as css from "./RegistryList.css.js";
@@ -21,7 +19,6 @@ const KNOWN_REGISTRIES = [
 
 interface RegistryListData {
     registries: RegistryEntry[];
-    hasSudo: boolean;
 }
 
 export const loader = async ({ c }: LoaderArgs) => {
@@ -30,28 +27,26 @@ export const loader = async ({ c }: LoaderArgs) => {
     );
     const user = c.get("user");
     const registries = await listRegistries(user);
-    return { registries, hasSudo: user.hasSudo } satisfies RegistryListData;
+    return { registries } satisfies RegistryListData;
 };
 
 export const action_login = async ({
-    body, c,
-}: ActionArgs<{ registry: string; username: string; password: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ registry: string; username: string; password: string }>) => {
     const { loginRegistry } = await import(
         "../modules/registry/registry.service.js"
     );
-    const user = c!.get("user");
-    await loginRegistry(body.registry, body.username, body.password, body.scope, user);
+    await loginRegistry(body.registry, body.username, body.password);
     return { ok: true };
 };
 
 export const action_logout = async ({
-    body, c,
-}: ActionArgs<{ registry: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ registry: string }>) => {
     const { logoutRegistry } = await import(
         "../modules/registry/registry.service.js"
     );
-    const user = c!.get("user");
-    await logoutRegistry(body.registry, body.scope, user);
+    await logoutRegistry(body.registry);
     return { ok: true };
 };
 
@@ -63,13 +58,11 @@ export const Component = () => {
     const formRegistryCustom = useSignal("");
     const formUsername = useSignal("");
     const formPassword = useSignal("");
-    const formScope = useSignal<Scope>("user");
     const submitting = useSignal(false);
 
     if (loading.value) return <div>Loading...</div>;
 
     const registries = data.value?.registries ?? [];
-    const hasSudo = data.value?.hasSudo ?? false;
 
     const isCustom = formRegistrySelect.value === "__custom__";
     const registryValue = isCustom ? formRegistryCustom.value.trim() : formRegistrySelect.value;
@@ -81,7 +74,6 @@ export const Component = () => {
         formRegistryCustom.value = "";
         formUsername.value = "";
         formPassword.value = "";
-        formScope.value = "user";
         submitting.value = false;
     };
 
@@ -94,7 +86,6 @@ export const Component = () => {
                     registry: registryValue,
                     username: formUsername.value.trim(),
                     password: formPassword.value,
-                    scope: formScope.value,
                 },
             });
             if (result && typeof result === "object" && "error" in result) {
@@ -111,10 +102,10 @@ export const Component = () => {
         }
     };
 
-    const handleLogout = async (registry: string, scope: Scope) => {
+    const handleLogout = async (registry: string) => {
         if (!await confirm(`Logout from ${registry}?`, { confirmLabel: "Logout" })) return;
         try {
-            const result = await action_logout({ body: { registry, scope } });
+            const result = await action_logout({ body: { registry } });
             if (result && typeof result === "object" && "error" in result) {
                 toast(String((result as { error: string }).error), "error");
                 return;
@@ -202,21 +193,6 @@ export const Component = () => {
                             />
                         </div>
 
-                        {hasSudo && (
-                            <div class={css.inlineFormField}>
-                                <label class={css.inlineFormLabel}>Scope</label>
-                                <select
-                                    class={css.select}
-                                    value={formScope.value}
-                                    onChange={(e) => {
-                                        formScope.value = (e.target as HTMLSelectElement).value as Scope;
-                                    }}
-                                >
-                                    <option value="user">User</option>
-                                    <option value="system">System</option>
-                                </select>
-                            </div>
-                        )}
                     </div>
 
                     <div class={css.inlineFormActions}>
@@ -245,26 +221,22 @@ export const Component = () => {
                             <tr>
                                 <th class={css.th}>Registry</th>
                                 <th class={css.th}>Username</th>
-                                <th class={css.th}>Scope</th>
                                 <th class={css.th}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {registries.map((reg) => (
-                                <tr key={`${reg.scope}-${reg.registry}`}>
+                                <tr key={reg.registry}>
                                     <td class={css.td}>
                                         <span class={css.registryName}>{reg.registry}</span>
                                     </td>
                                     <td class={css.td}>{reg.username}</td>
                                     <td class={css.td}>
-                                        <ScopeBadge scope={reg.scope} />
-                                    </td>
-                                    <td class={css.td}>
                                         <div class={css.actionsCell}>
                                             <ActionButton
                                                 label="Logout"
                                                 variant="danger"
-                                                onClick={() => handleLogout(reg.registry, reg.scope)}
+                                                onClick={() => handleLogout(reg.registry)}
                                             />
                                         </div>
                                     </td>

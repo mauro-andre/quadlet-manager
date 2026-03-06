@@ -2,10 +2,11 @@ import { readFile, writeFile } from "node:fs/promises";
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { join } from "node:path";
+import { homedir } from "node:os";
 
 const execFile = promisify(execFileCb);
 
-const INSTALL_DIR = "/opt/quadlet-manager";
+const INSTALL_DIR = join(homedir(), ".local/share/quadlet-manager");
 const GITHUB_API = "https://api.github.com/repos/mauro-andre/quadlet-manager/releases/latest";
 
 export interface UpdateInfo {
@@ -104,7 +105,7 @@ export async function performUpdate(version: string, tarballUrl: string): Promis
         await execFile("rm", ["-rf", tmpDir, tmpArchive]).catch(() => {});
 
         // 7. Restart service (fire-and-forget — this kills us)
-        const child = spawn("systemctl", ["restart", "quadlet-manager"], {
+        const child = spawn("systemctl", ["--user", "restart", "quadlet-manager"], {
             detached: true,
             stdio: "ignore",
         });

@@ -20,8 +20,7 @@ export const loader = async ({ c }: LoaderArgs) => {
     const { getProxyStatus } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    const user = c.get("user");
-    const status = await getProxyStatus(user);
+    const status = await getProxyStatus();
     return {
         config: status.config,
         domains: status.domains,
@@ -52,7 +51,7 @@ export const action_disable = async ({ c }: ActionArgs<Record<string, never>>) =
 };
 
 export const action_add = async ({
-    body, c,
+    body,
 }: ActionArgs<{
     domain: string;
     containerName: string;
@@ -65,14 +64,13 @@ export const action_add = async ({
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    const user = c!.get("user");
     proxyStore.addDomain(body.domain, body.containerName, body.containerPort, body.targetType, body.tls, body.backendHttps);
-    await regenerateCaddyfile(user);
+    await regenerateCaddyfile();
     return { ok: true };
 };
 
 export const action_update = async ({
-    body, c,
+    body,
 }: ActionArgs<{
     id: number;
     domain: string;
@@ -86,35 +84,32 @@ export const action_update = async ({
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    const user = c!.get("user");
     proxyStore.updateDomain(body.id, body.domain, body.containerName, body.containerPort, body.targetType, body.tls, body.backendHttps);
-    await regenerateCaddyfile(user);
+    await regenerateCaddyfile();
     return { ok: true };
 };
 
 export const action_delete = async ({
-    body, c,
+    body,
 }: ActionArgs<{ id: number }>) => {
     const { proxyStore } = await import("../modules/proxy/proxy.store.js");
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    const user = c!.get("user");
     proxyStore.deleteDomain(body.id);
-    await regenerateCaddyfile(user);
+    await regenerateCaddyfile();
     return { ok: true };
 };
 
 export const action_toggle = async ({
-    body, c,
+    body,
 }: ActionArgs<{ id: number; enabled: boolean }>) => {
     const { proxyStore } = await import("../modules/proxy/proxy.store.js");
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    const user = c!.get("user");
     proxyStore.toggleDomain(body.id, body.enabled);
-    await regenerateCaddyfile(user);
+    await regenerateCaddyfile();
     return { ok: true };
 };
 

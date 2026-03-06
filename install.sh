@@ -10,9 +10,10 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-INSTALL_DIR="/opt/quadlet-manager"
 SERVICE_NAME="quadlet-manager"
-SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+INSTALL_DIR="${HOME}/.local/share/quadlet-manager"
+SERVICE_DIR="${HOME}/.config/systemd/user"
+SERVICE_FILE="${SERVICE_DIR}/${SERVICE_NAME}.service"
 ENV_FILE="${INSTALL_DIR}/.env"
 REPO="mauro-andre/quadlet-manager"
 
@@ -22,7 +23,7 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 # --- Checks ---
 
-[[ $EUID -eq 0 ]] || error "This script must be run as root"
+[[ $EUID -ne 0 ]] || error "Do not run this script as root. Run as the user that will manage Podman containers."
 
 command -v node >/dev/null 2>&1 || error "Node.js is not installed. Install Node.js 20+ first: https://nodejs.org"
 NODE_MAJOR=$(node -v | sed 's/v//' | cut -d. -f1)
@@ -36,13 +37,17 @@ command -v python3 >/dev/null 2>&1 || error "Python 3 is not installed (required
 
 if ! command -v rclone >/dev/null 2>&1; then
     info "Installing rclone (required for backups)..."
-    command -v unzip >/dev/null 2>&1 || {
-        # Try to install unzip (required by rclone installer)
-        command -v dnf >/dev/null 2>&1 && dnf install -y unzip >/dev/null 2>&1
-        command -v apt-get >/dev/null 2>&1 && apt-get install -y unzip >/dev/null 2>&1
-    }
-    curl -fsSL https://rclone.org/install.sh | bash >/dev/null 2>&1 || warn "Failed to install rclone. Backups will not be available."
+    command -v unzip >/dev/null 2>&1 || warn "unzip is not installed — rclone installation may fail"
+    curl -fsSL https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || warn "Failed to install rclone. Backups will not be available."
 fi
+
+# --- Enable linger ---
+
+info "Enabling lingering for user $(whoami)..."
+loginctl enable-linger "$(whoami)" 2>/dev/null || {
+    warn "Could not enable linger. Trying with sudo..."
+    sudo loginctl enable-linger "$(whoami)" || warn "Failed to enable linger. User services may not survive logout."
+}
 
 # --- Download ---
 
@@ -54,9 +59,9 @@ curl -fSL -o "$TARBALL" "$TARBALL_URL" || error "Failed to download v${VERSION}.
 
 # --- Stop existing service ---
 
-if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+if systemctl --user is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
     info "Stopping existing service..."
-    systemctl stop "$SERVICE_NAME"
+    systemctl --user stop "$SERVICE_NAME"
 fi
 
 # --- Install ---
@@ -78,10 +83,12 @@ if [[ ! -f "$ENV_FILE" ]]; then
     chmod 600 "$ENV_FILE"
 fi
 
-# --- Systemd Service ---
+# --- Systemd User Service ---
 
-info "Configuring systemd service..."
-cat > "$SERVICE_FILE" << 'EOF'
+info "Configuring systemd user service..."
+mkdir -p "$SERVICE_DIR"
+
+cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=Quadlet Manager
 After=network-online.target podman.socket
@@ -89,28 +96,30 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/quadlet-manager
-ExecStart=/usr/bin/node dist/server.js
+WorkingDirectory=${INSTALL_DIR}
+ExecStart=$(command -v node) dist/server.js
 Restart=on-failure
 RestartSec=5
 Environment=NODE_ENV=production
 Environment=SERVER_PORT=3000
-EnvironmentFile=/opt/quadlet-manager/.env
+EnvironmentFile=${INSTALL_DIR}/.env
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=default.target
 EOF
 
-systemctl daemon-reload
-systemctl enable "$SERVICE_NAME" --quiet
-systemctl start "$SERVICE_NAME"
+systemctl --user daemon-reload
+systemctl --user enable "$SERVICE_NAME" --quiet
+systemctl --user start "$SERVICE_NAME"
 
 # --- Done ---
 
 echo ""
 echo -e "${GREEN}Quadlet Manager v${VERSION} installed successfully!${NC}"
 echo ""
-echo -e "  ${BLUE}Status${NC}:  systemctl status ${SERVICE_NAME}"
-echo -e "  ${BLUE}Logs${NC}:    journalctl -u ${SERVICE_NAME} -f"
+echo -e "  ${BLUE}User${NC}:    $(whoami)"
+echo -e "  ${BLUE}Dir${NC}:     ${INSTALL_DIR}"
+echo -e "  ${BLUE}Status${NC}:  systemctl --user status ${SERVICE_NAME}"
+echo -e "  ${BLUE}Logs${NC}:    journalctl --user -u ${SERVICE_NAME} -f"
 echo -e "  ${BLUE}Access${NC}:  http://$(hostname -I 2>/dev/null | awk '{print $1}' || echo 'localhost'):3000"
 echo ""

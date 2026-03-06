@@ -4,7 +4,7 @@ import { MetricsStore } from "./modules/metrics/metrics.store.js";
 import { startCollector } from "./modules/metrics/metrics.collector.js";
 import type { TimeRange } from "./modules/metrics/metrics.types.js";
 import { authMiddleware } from "./modules/auth/auth.middleware.js";
-import type { AuthUser, Scope } from "./modules/auth/auth.types.js";
+import type { AuthUser } from "./modules/auth/auth.types.js";
 
 const store = new MetricsStore();
 startCollector(store);
@@ -19,11 +19,6 @@ import("./modules/backup/backup.service.js").then(({ startScheduler }) => {
 // ============================================
 
 registerTerminalWebSocket();
-
-function getScope(c: { req: { query: (k: string) => string | undefined } }): Scope {
-    const s = c.req.query("scope");
-    return s === "system" ? "system" : "user";
-}
 
 function getUser(c: { get: (k: string) => unknown }): AuthUser {
     return c.get("user") as AuthUser;
@@ -114,16 +109,9 @@ function registerLogStreams(app: Hono) {
         const { spawn } = await import("node:child_process");
 
         const name = c.req.param("name");
-        const scope = getScope(c);
-        const user = getUser(c);
-
-        // Use podman with the correct socket for the scope
-        const { getSocketForScope } = await import("./modules/podman/podman.client.js");
-        const socket = getSocketForScope(scope, user.uid);
 
         return streamSSE(c, async (stream) => {
             const proc = spawn("podman", [
-                "--url", `unix://${socket}`,
                 "logs",
                 "-f",
                 "--tail",
@@ -150,18 +138,14 @@ function registerLogStreams(app: Hono) {
         const { spawn } = await import("node:child_process");
 
         const name = c.req.param("name");
-        const scope = getScope(c);
-        const user = getUser(c);
 
         const { journalctlCmd } = await import("./modules/systemd/systemd.service.js");
-        const [cmd, args, env] = journalctlCmd(
+        const [cmd, args] = journalctlCmd(
             ["-f", "-u", name, "-n", "100", "--no-pager", "-o", "short"],
-            scope,
-            user
         );
 
         return streamSSE(c, async (stream) => {
-            const proc = spawn(cmd, args, env ? { env: { ...process.env, ...env } } : undefined);
+            const proc = spawn(cmd, args);
 
             proc.stdout.on("data", (chunk: Buffer) => {
                 stream.writeSSE({ data: chunk.toString() });
@@ -179,26 +163,21 @@ function registerPullEndpoints(app: Hono) {
         const { pullStore } = await import("./modules/podman/pull.store.js");
         const { podmanStreamPull } = await import("./modules/podman/podman.client.js");
 
-        const user = getUser(c);
-        const { reference, scope: reqScope } = await c.req.json<{ reference: string; scope?: Scope }>();
+        const { reference } = await c.req.json<{ reference: string }>();
         if (!reference || typeof reference !== "string") {
             return c.json({ error: "Missing reference" }, 400);
         }
 
-        const scope: Scope = reqScope === "system" ? "system" : "user";
         const pullId = pullStore.createPull(reference.trim());
         let lastError = "";
         let pulledImages: string[] | null = null;
 
         podmanStreamPull(
             reference.trim(),
-            scope,
-            user.uid,
             (line) => {
                 try {
                     const parsed = JSON.parse(line);
 
-                    // Track final result fields
                     if (parsed.images && Array.isArray(parsed.images)) {
                         pulledImages = parsed.images;
                     }
@@ -313,12 +292,9 @@ function registerPullEndpoints(app: Hono) {
 }
 
 function registerPodmanEndpoints(app: Hono) {
-    // Image names (for quadlet editor) — scope-aware
     app.get("/api/podman/images", async (c) => {
         const { listImages } = await import("./modules/podman/podman.client.js");
-        const scope = getScope(c);
-        const user = getUser(c);
-        const images = await listImages(scope, user.uid).catch(() => []);
+        const images = await listImages().catch(() => []);
         const tags: string[] = [];
         for (const img of images) {
             if (img.RepoTags) {
@@ -330,43 +306,34 @@ function registerPodmanEndpoints(app: Hono) {
         return c.json(tags);
     });
 
-    // Volume names (for quadlet editor) — scope-aware
     app.get("/api/podman/volumes", async (c) => {
         const { listVolumes } = await import("./modules/podman/podman.client.js");
-        const scope = getScope(c);
-        const user = getUser(c);
-        const volumes = await listVolumes(scope, user.uid).catch(() => []);
+        const volumes = await listVolumes().catch(() => []);
         return c.json(volumes.map((v) => v.Name));
     });
 
-    // Network names (for quadlet editor) — scope-aware
     app.get("/api/podman/networks", async (c) => {
         const { listNetworks } = await import("./modules/podman/podman.client.js");
-        const scope = getScope(c);
-        const user = getUser(c);
-        const networks = await listNetworks(scope, user.uid).catch(() => []);
+        const networks = await listNetworks().catch(() => []);
         return c.json(networks.map((n) => n.name).filter(Boolean));
     });
 }
 
 function registerSystemEndpoints(app: Hono) {
-    // System + container stats overview (for dashboard)
     app.get("/api/system/stats", async (c) => {
         const { getSystemCpuPercent, getSystemMemory } = await import(
             "./modules/system/system.stats.js"
         );
-        const { listAllContainers } = await import(
+        const { listContainers } = await import(
             "./modules/podman/podman.client.js"
         );
 
-        const user = getUser(c);
         const [cpu, memory, containers] = await Promise.all([
             getSystemCpuPercent(),
             getSystemMemory(),
-            listAllContainers(user).catch(() => []),
+            listContainers().catch(() => []),
         ]);
 
-        // Filter collector metrics to only include user's containers
         const containerIds = new Set(containers.map((ct) => ct.Id));
         const allMetrics = store.latestAll();
         let containersCpu = 0;
@@ -387,7 +354,6 @@ function registerSystemEndpoints(app: Hono) {
         });
     });
 
-    // Disk usage (filesystems + Podman) — uses user scope
     app.get("/api/system/disk", async (c) => {
         const { getSystemDisks } = await import(
             "./modules/system/system.stats.js"
@@ -396,11 +362,9 @@ function registerSystemEndpoints(app: Hono) {
             "./modules/podman/podman.client.js"
         );
 
-        const user = getUser(c);
-        const scope = getScope(c);
         const [partitions, podman] = await Promise.all([
             getSystemDisks(),
-            getDiskUsage(scope, user.uid),
+            getDiskUsage(),
         ]);
 
         let containersSize = 0;
@@ -433,7 +397,6 @@ function registerSystemEndpoints(app: Hono) {
         });
     });
 
-    // SSE live system stats — queries both user + system Podman sockets
     app.get("/api/system/stats/live", async (c) => {
         const { streamSSE } = await import("hono/streaming");
         const { getSystemCpuPercent, getSystemMemory } = await import(
@@ -443,7 +406,6 @@ function registerSystemEndpoints(app: Hono) {
             "./modules/podman/podman.client.js"
         );
 
-        const user = getUser(c);
         const prevCpu = new Map<string, { cpuNano: number; systemNano: number }>();
 
         return streamSSE(c, async (stream) => {
@@ -451,19 +413,12 @@ function registerSystemEndpoints(app: Hono) {
             stream.onAbort(() => { running = false; });
 
             while (running) {
-                const statsFetches = [
-                    getAllContainerStats("user", user.uid).catch(() => []),
-                ];
-                if (user.hasSudo) {
-                    statsFetches.push(getAllContainerStats("system").catch(() => []));
-                }
-                const [cpu, memory, ...statsArrays] = await Promise.all([
+                const [cpu, memory, allStats] = await Promise.all([
                     getSystemCpuPercent(),
                     getSystemMemory(),
-                    ...statsFetches,
+                    getAllContainerStats().catch(() => []),
                 ]);
 
-                const allStats = statsArrays.flat();
                 let containersCpu = 0;
                 let containersMem = 0;
                 const containersCount = allStats.length;
@@ -535,7 +490,6 @@ function registerTerminalWebSocket() {
                 wss.handleUpgrade(req, socket, head, (ws) => {
                 const type = url.searchParams.get("type") || "host";
                 const containerName = url.searchParams.get("name") || "";
-                const scope = (url.searchParams.get("scope") || "user") as Scope;
 
                 let sessionId: string | null = null;
 
@@ -553,7 +507,7 @@ function registerTerminalWebSocket() {
                             // Create PTY session
                             const session =
                                 type === "container" && containerName
-                                    ? createContainerTerminal(user, containerName, scope, msg.cols, msg.rows)
+                                    ? createContainerTerminal(user, containerName, msg.cols, msg.rows)
                                     : createHostTerminal(user, msg.cols, msg.rows);
 
                             sessionId = session.id;
@@ -603,17 +557,14 @@ function registerTerminalWebSocket() {
 }
 
 function registerProxyEndpoints(app: Hono) {
-    // Running containers with ports and networks (for domain form)
     app.get("/api/proxy/containers", async (c) => {
         const { getContainersWithPorts } = await import(
             "./modules/proxy/proxy.service.js"
         );
-        const user = getUser(c);
-        const containers = await getContainersWithPorts(user);
+        const containers = await getContainersWithPorts();
         return c.json(containers);
     });
 
-    // Sysctl check for port 80 binding
     app.get("/api/proxy/sysctl", async (c) => {
         const { checkSysctl } = await import(
             "./modules/proxy/proxy.service.js"

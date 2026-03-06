@@ -10,14 +10,12 @@ import * as css from "./AdminLayout.css.js";
 
 interface AdminLayoutData {
     username: string;
-    hasSudo: boolean;
 }
 
 export const loader = async ({ c }: LoaderArgs) => {
     const user = c.get("user");
     return {
         username: user?.username ?? "unknown",
-        hasSudo: user?.hasSudo ?? false,
     } satisfies AdminLayoutData;
 };
 
@@ -84,9 +82,6 @@ export const Component = ({ children }: { children?: ComponentChildren }) => {
                 <div class={css.sidebarFooter}>
                     <div class={css.userInfo}>
                         <span class={css.username}>{data.value?.username}</span>
-                        {data.value?.hasSudo && (
-                            <span class={css.sudoBadge}>sudo</span>
-                        )}
                     </div>
                     <ThemeToggle />
                     <button class={css.logoutButton} onClick={handleLogout}>

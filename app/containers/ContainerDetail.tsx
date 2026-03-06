@@ -4,10 +4,8 @@ import { useLoader, useParams } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { PodmanContainerInspect } from "../modules/podman/podman.types.js";
-import type { Scope } from "../modules/auth/auth.types.js";
 import type { MetricPoint, TimeRange } from "../modules/metrics/metrics.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
-import { ScopeBadge } from "../components/ScopeBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { LogStream } from "../components/LogStream.js";
 import { MetricsChart } from "../components/MetricsChart.js";
@@ -21,54 +19,48 @@ import * as tcss from "../components/Terminal.css.js";
 interface ContainerDetailData {
     container: PodmanContainerInspect;
     serviceName: string;
-    scope: Scope;
 }
 
-export const loader = async ({ params, query, c }: LoaderArgs) => {
+export const loader = async ({ params }: LoaderArgs) => {
     const { inspectContainer } = await import(
         "../modules/podman/podman.client.js"
     );
 
-    const user = c.get("user");
-    const scope: Scope = query.scope === "system" ? "system" : "user";
-    const container = await inspectContainer(params.id!, scope, user.uid);
+    const container = await inspectContainer(params.id!);
     const serviceName =
         container.Config?.Labels?.["PODMAN_SYSTEMD_UNIT"] ??
         `${container.Name.replace(/^\//, "")}.service`;
 
-    return { container, serviceName, scope } satisfies ContainerDetailData;
+    return { container, serviceName } satisfies ContainerDetailData;
 };
 
 export const action_start = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { startService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await startService(body.serviceName, body.scope, user);
+    await startService(body.serviceName);
     return { ok: true };
 };
 
 export const action_stop = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { stopService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await stopService(body.serviceName, body.scope, user);
+    await stopService(body.serviceName);
     return { ok: true };
 };
 
 export const action_restart = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { restartService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await restartService(body.serviceName, body.scope, user);
+    await restartService(body.serviceName);
     return { ok: true };
 };
 
@@ -78,7 +70,6 @@ export const Component = () => {
     const metrics = useSignal<MetricPoint[]>([]);
     const timeRange = useSignal<TimeRange>("1h");
 
-    // Fetch historical metrics when range changes
     useEffect(() => {
         if (typeof window === "undefined" || !params.id) return;
 
@@ -88,7 +79,6 @@ export const Component = () => {
             .catch(() => {});
     }, [params.id, timeRange.value]);
 
-    // Live metrics via SSE
     useEffect(() => {
         if (typeof window === "undefined" || !params.id) return;
 
@@ -104,7 +94,7 @@ export const Component = () => {
     if (loading.value) return <div>Loading...</div>;
     if (!data.value) return <div>Container not found</div>;
 
-    const { container, serviceName, scope } = data.value;
+    const { container, serviceName } = data.value;
     const name = container.Name.replace(/^\//, "");
     const state = container.State;
 
@@ -121,7 +111,6 @@ export const Component = () => {
 
                 <div class={css.header}>
                     <h1 class={css.title}>{name}</h1>
-                    <ScopeBadge scope={scope} />
                     <StatusBadge status={state.Status} />
                     <div class={css.actions}>
                         <ActionButton
@@ -129,7 +118,7 @@ export const Component = () => {
                             variant="primary"
                             onClick={() =>
                                 run(
-                                    action_start({ body: { serviceName, scope } }),
+                                    action_start({ body: { serviceName } }),
                                     "Container started"
                                 )
                             }
@@ -139,14 +128,14 @@ export const Component = () => {
                             variant="danger"
                             onClick={async () => {
                                 if (await confirm(`Stop container ${name}?`, { variant: "warning", confirmLabel: "Stop" }))
-                                    run(action_stop({ body: { serviceName, scope } }), "Container stopped");
+                                    run(action_stop({ body: { serviceName } }), "Container stopped");
                             }}
                         />
                         <ActionButton
                             label="Restart"
                             onClick={() =>
                                 run(
-                                    action_restart({ body: { serviceName, scope } }),
+                                    action_restart({ body: { serviceName } }),
                                     "Container restarted"
                                 )
                             }
@@ -157,7 +146,7 @@ export const Component = () => {
                 <div class={tcss.tabs}>
                     <span class={tcss.tabActive}>Info</span>
                     <Link
-                        to={`/containers/${params.id}/terminal?scope=${scope}`}
+                        to={`/containers/${params.id}/terminal`}
                         class={tcss.tab}
                     >
                         Terminal
@@ -283,7 +272,7 @@ export const Component = () => {
                 </div>
 
                 <LogStream
-                    url={`/api/logs/container/${encodeURIComponent(name)}?scope=${scope}`}
+                    url={`/api/logs/container/${encodeURIComponent(name)}`}
                     title="Container Logs"
                 />
         </div>

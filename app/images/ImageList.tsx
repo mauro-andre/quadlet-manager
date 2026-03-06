@@ -4,9 +4,7 @@ import { useLoader } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { PodmanImage } from "../modules/podman/podman.types.js";
-import type { Scope } from "../modules/auth/auth.types.js";
 import { ActionButton } from "../components/ActionButton.js";
-import { ScopeBadge } from "../components/ScopeBadge.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import { PullImageModal } from "../components/PullImageModal.js";
@@ -32,12 +30,8 @@ function shortId(id: string): string {
     return id.replace(/^sha256:/, "").slice(0, 12);
 }
 
-interface ImageWithScope extends PodmanImage {
-    scope: Scope;
-}
-
 interface ImageListData {
-    images: ImageWithScope[];
+    images: PodmanImage[];
 }
 
 interface PullProgress {
@@ -47,23 +41,21 @@ interface PullProgress {
     status: "pulling" | "error";
 }
 
-export const loader = async ({ c }: LoaderArgs) => {
-    const { listAllImages } = await import(
+export const loader = async (_: LoaderArgs) => {
+    const { listImages } = await import(
         "../modules/podman/podman.client.js"
     );
-    const user = c.get("user");
-    const images = await listAllImages(user).catch(() => [] as ImageWithScope[]);
+    const images = await listImages().catch(() => [] as PodmanImage[]);
     return { images } satisfies ImageListData;
 };
 
 export const action_remove = async ({
-    body, c,
-}: ActionArgs<{ id: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ id: string }>) => {
     const { removeImage } = await import(
         "../modules/podman/podman.client.js"
     );
-    const user = c!.get("user");
-    await removeImage(body.id, body.scope, user.uid, true);
+    await removeImage(body.id, true);
     return { ok: true };
 };
 
@@ -191,7 +183,6 @@ export const Component = () => {
                             <tr>
                                 <th class={css.th}>Repository / Tag</th>
                                 <th class={css.th}>ID</th>
-                                <th class={css.th}>Scope</th>
                                 <th class={css.th}>Size</th>
                                 <th class={css.th}>Created</th>
                                 <th class={css.th}>Containers</th>
@@ -202,21 +193,17 @@ export const Component = () => {
                             {images.map((img) => {
                                 const tag = formatTag(img);
                                 return (
-                                    <tr key={`${img.scope}-${img.Id}`}>
+                                    <tr key={img.Id}>
                                         <td class={css.td}>
                                             <Link
                                                 to={ImageDetail}
                                                 params={{ id: shortId(img.Id) }}
-                                                search={{ scope: img.scope }}
                                                 class={css.nameLink}
                                             >
                                                 {tag}
                                             </Link>
                                         </td>
                                         <td class={css.td}>{shortId(img.Id)}</td>
-                                        <td class={css.td}>
-                                            <ScopeBadge scope={img.scope} />
-                                        </td>
                                         <td class={css.td}>{formatBytes(img.Size)}</td>
                                         <td class={css.td}>
                                             {new Date(img.Created * 1000).toLocaleString()}
@@ -229,7 +216,7 @@ export const Component = () => {
                                                     variant="danger"
                                                     onClick={async () => {
                                                         if (await confirm(`Remove image ${tag}?`, { confirmLabel: "Remove" }))
-                                                            run(action_remove({ body: { id: img.Id, scope: img.scope } }), "Image removed");
+                                                            run(action_remove({ body: { id: img.Id } }), "Image removed");
                                                     }}
                                                 />
                                             </div>

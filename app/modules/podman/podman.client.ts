@@ -1,28 +1,14 @@
 import http from "node:http";
 import { join } from "node:path";
-import type { Scope, AuthUser } from "../auth/auth.types.js";
 import type { PodmanContainer, PodmanContainerInspect, PodmanStats, PodmanStatsResponse, PodmanImage, PodmanImageInspect, PodmanImageHistory, PodmanDiskUsage, PodmanNetwork, PodmanVolume } from "./podman.types.js";
 
-function getDefaultSocket(): string {
-    // Rootless: $XDG_RUNTIME_DIR/podman/podman.sock
+function getSocket(): string {
+    if (process.env.PODMAN_SOCKET) return process.env.PODMAN_SOCKET;
     const xdgRuntime = process.env.XDG_RUNTIME_DIR;
     if (xdgRuntime) {
         return join(xdgRuntime, "podman/podman.sock");
     }
-    // Rootful fallback
     return "/run/podman/podman.sock";
-}
-
-export function getSocketForScope(scope: Scope, uid?: number): string {
-    if (process.env.PODMAN_SOCKET) return process.env.PODMAN_SOCKET;
-    if (scope === "system") {
-        return "/run/podman/podman.sock";
-    }
-    // user scope
-    if (uid) {
-        return `/run/user/${uid}/podman/podman.sock`;
-    }
-    return getDefaultSocket();
 }
 
 const API_BASE = "/v4.0.0/libpod";
@@ -84,44 +70,24 @@ async function podmanRequest<T>(
     });
 }
 
-export async function listContainers(
-    scope: Scope,
-    uid?: number,
-    all: boolean = true
-): Promise<PodmanContainer[]> {
-    const socket = getSocketForScope(scope, uid);
+export async function listContainers(all: boolean = true): Promise<PodmanContainer[]> {
+    const socket = getSocket();
     return podmanRequest<PodmanContainer[]>(
         `/containers/json?all=${all}`,
         socket
     );
 }
 
-export async function listAllContainers(user: AuthUser): Promise<(PodmanContainer & { scope: Scope })[]> {
-    const [userContainers, systemContainers] = await Promise.all([
-        listContainers("user", user.uid).catch(() => []),
-        user.hasSudo ? listContainers("system").catch(() => []) : Promise.resolve([]),
-    ]);
-
-    return [
-        ...userContainers.map((c) => ({ ...c, scope: "user" as Scope })),
-        ...systemContainers.map((c) => ({ ...c, scope: "system" as Scope })),
-    ];
-}
-
-export async function inspectContainer(
-    id: string,
-    scope: Scope,
-    uid?: number
-): Promise<PodmanContainerInspect> {
-    const socket = getSocketForScope(scope, uid);
+export async function inspectContainer(id: string): Promise<PodmanContainerInspect> {
+    const socket = getSocket();
     return podmanRequest<PodmanContainerInspect>(
         `/containers/${encodeURIComponent(id)}/json`,
         socket
     );
 }
 
-export async function getAllContainerStats(scope: Scope, uid?: number): Promise<PodmanStats[]> {
-    const socket = getSocketForScope(scope, uid);
+export async function getAllContainerStats(): Promise<PodmanStats[]> {
+    const socket = getSocket();
     const res = await podmanRequest<PodmanStatsResponse>(
         `/containers/stats?stream=false`,
         socket
@@ -129,41 +95,29 @@ export async function getAllContainerStats(scope: Scope, uid?: number): Promise<
     return res.Stats ?? [];
 }
 
-export async function listImages(scope: Scope, uid?: number): Promise<PodmanImage[]> {
-    const socket = getSocketForScope(scope, uid);
+export async function listImages(): Promise<PodmanImage[]> {
+    const socket = getSocket();
     return podmanRequest<PodmanImage[]>(`/images/json`, socket);
 }
 
-export async function listAllImages(user: AuthUser): Promise<(PodmanImage & { scope: Scope })[]> {
-    const [userImages, systemImages] = await Promise.all([
-        listImages("user", user.uid).catch(() => []),
-        user.hasSudo ? listImages("system").catch(() => []) : Promise.resolve([]),
-    ]);
-
-    return [
-        ...userImages.map((i) => ({ ...i, scope: "user" as Scope })),
-        ...systemImages.map((i) => ({ ...i, scope: "system" as Scope })),
-    ];
-}
-
-export async function inspectImage(name: string, scope: Scope, uid?: number): Promise<PodmanImageInspect> {
-    const socket = getSocketForScope(scope, uid);
+export async function inspectImage(name: string): Promise<PodmanImageInspect> {
+    const socket = getSocket();
     return podmanRequest<PodmanImageInspect>(
         `/images/${encodeURIComponent(name)}/json`,
         socket
     );
 }
 
-export async function getImageHistory(name: string, scope: Scope, uid?: number): Promise<PodmanImageHistory[]> {
-    const socket = getSocketForScope(scope, uid);
+export async function getImageHistory(name: string): Promise<PodmanImageHistory[]> {
+    const socket = getSocket();
     return podmanRequest<PodmanImageHistory[]>(
         `/images/${encodeURIComponent(name)}/history`,
         socket
     );
 }
 
-export async function removeImage(name: string, scope: Scope, uid?: number, force: boolean = false): Promise<void> {
-    const socket = getSocketForScope(scope, uid);
+export async function removeImage(name: string, force: boolean = false): Promise<void> {
+    const socket = getSocket();
     await podmanRequest<unknown>(
         `/images/${encodeURIComponent(name)}?force=${force}`,
         socket,
@@ -171,17 +125,13 @@ export async function removeImage(name: string, scope: Scope, uid?: number, forc
     );
 }
 
-export async function getDiskUsage(scope: Scope, uid?: number): Promise<PodmanDiskUsage> {
-    const socket = getSocketForScope(scope, uid);
+export async function getDiskUsage(): Promise<PodmanDiskUsage> {
+    const socket = getSocket();
     return podmanRequest<PodmanDiskUsage>(`/system/df`, socket);
 }
 
-export async function listContainersByVolume(
-    volumeName: string,
-    scope: Scope,
-    uid?: number
-): Promise<PodmanContainer[]> {
-    const socket = getSocketForScope(scope, uid);
+export async function listContainersByVolume(volumeName: string): Promise<PodmanContainer[]> {
+    const socket = getSocket();
     const filters = encodeURIComponent(JSON.stringify({ volume: [volumeName] }));
     return podmanRequest<PodmanContainer[]>(
         `/containers/json?all=true&filters=${filters}`,
@@ -189,33 +139,21 @@ export async function listContainersByVolume(
     );
 }
 
-export async function listNetworks(scope: Scope, uid?: number): Promise<PodmanNetwork[]> {
-    const socket = getSocketForScope(scope, uid);
+export async function listNetworks(): Promise<PodmanNetwork[]> {
+    const socket = getSocket();
     return podmanRequest<PodmanNetwork[]>(`/networks/json`, socket);
 }
 
-export async function listAllNetworks(user: AuthUser): Promise<(PodmanNetwork & { scope: Scope })[]> {
-    const [userNetworks, systemNetworks] = await Promise.all([
-        listNetworks("user", user.uid).catch(() => []),
-        user.hasSudo ? listNetworks("system").catch(() => []) : Promise.resolve([]),
-    ]);
-
-    return [
-        ...userNetworks.map((n) => ({ ...n, scope: "user" as Scope })),
-        ...systemNetworks.map((n) => ({ ...n, scope: "system" as Scope })),
-    ];
-}
-
-export async function inspectNetwork(name: string, scope: Scope, uid?: number): Promise<PodmanNetwork> {
-    const socket = getSocketForScope(scope, uid);
+export async function inspectNetwork(name: string): Promise<PodmanNetwork> {
+    const socket = getSocket();
     return podmanRequest<PodmanNetwork>(
         `/networks/${encodeURIComponent(name)}/json`,
         socket
     );
 }
 
-export async function removeNetwork(name: string, scope: Scope, uid?: number): Promise<void> {
-    const socket = getSocketForScope(scope, uid);
+export async function removeNetwork(name: string): Promise<void> {
+    const socket = getSocket();
     await podmanRequest<unknown>(
         `/networks/${encodeURIComponent(name)}`,
         socket,
@@ -223,12 +161,8 @@ export async function removeNetwork(name: string, scope: Scope, uid?: number): P
     );
 }
 
-export async function listContainersByNetwork(
-    networkName: string,
-    scope: Scope,
-    uid?: number
-): Promise<PodmanContainer[]> {
-    const socket = getSocketForScope(scope, uid);
+export async function listContainersByNetwork(networkName: string): Promise<PodmanContainer[]> {
+    const socket = getSocket();
     const filters = encodeURIComponent(JSON.stringify({ network: [networkName] }));
     return podmanRequest<PodmanContainer[]>(
         `/containers/json?all=true&filters=${filters}`,
@@ -236,33 +170,21 @@ export async function listContainersByNetwork(
     );
 }
 
-export async function listVolumes(scope: Scope, uid?: number): Promise<PodmanVolume[]> {
-    const socket = getSocketForScope(scope, uid);
+export async function listVolumes(): Promise<PodmanVolume[]> {
+    const socket = getSocket();
     return podmanRequest<PodmanVolume[]>(`/volumes/json`, socket);
 }
 
-export async function listAllVolumes(user: AuthUser): Promise<(PodmanVolume & { scope: Scope })[]> {
-    const [userVolumes, systemVolumes] = await Promise.all([
-        listVolumes("user", user.uid).catch(() => []),
-        user.hasSudo ? listVolumes("system").catch(() => []) : Promise.resolve([]),
-    ]);
-
-    return [
-        ...userVolumes.map((v) => ({ ...v, scope: "user" as Scope })),
-        ...systemVolumes.map((v) => ({ ...v, scope: "system" as Scope })),
-    ];
-}
-
-export async function inspectVolume(name: string, scope: Scope, uid?: number): Promise<PodmanVolume> {
-    const socket = getSocketForScope(scope, uid);
+export async function inspectVolume(name: string): Promise<PodmanVolume> {
+    const socket = getSocket();
     return podmanRequest<PodmanVolume>(
         `/volumes/${encodeURIComponent(name)}/json`,
         socket
     );
 }
 
-export async function removeVolume(name: string, scope: Scope, uid?: number, force: boolean = false): Promise<void> {
-    const socket = getSocketForScope(scope, uid);
+export async function removeVolume(name: string, force: boolean = false): Promise<void> {
+    const socket = getSocket();
     await podmanRequest<unknown>(
         `/volumes/${encodeURIComponent(name)}?force=${force}`,
         socket,
@@ -272,13 +194,11 @@ export async function removeVolume(name: string, scope: Scope, uid?: number, for
 
 export function podmanStreamPull(
     reference: string,
-    scope: Scope,
-    uid: number | undefined,
     onLine: (line: string) => void,
     onEnd: () => void,
     onError: (err: Error) => void,
 ): () => void {
-    const socketPath = getSocketForScope(scope, uid);
+    const socketPath = getSocket();
     const options: http.RequestOptions = {
         socketPath,
         path: `${API_BASE}/images/pull?reference=${encodeURIComponent(reference)}`,

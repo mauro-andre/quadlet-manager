@@ -2,40 +2,32 @@ import type { LoaderArgs, ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
 import type { PodmanNetwork } from "../modules/podman/podman.types.js";
-import type { Scope } from "../modules/auth/auth.types.js";
 import { ActionButton } from "../components/ActionButton.js";
-import { ScopeBadge } from "../components/ScopeBadge.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import * as NetworkDetail from "./NetworkDetail.js";
 import * as css from "./NetworkList.css.js";
 
-interface NetworkWithScope extends PodmanNetwork {
-    scope: Scope;
-}
-
 interface NetworkListData {
-    networks: NetworkWithScope[];
+    networks: PodmanNetwork[];
 }
 
-export const loader = async ({ c }: LoaderArgs) => {
-    const { listAllNetworks } = await import(
+export const loader = async (_: LoaderArgs) => {
+    const { listNetworks } = await import(
         "../modules/podman/podman.client.js"
     );
-    const user = c.get("user");
-    const networks = await listAllNetworks(user).catch(() => [] as NetworkWithScope[]);
+    const networks = await listNetworks().catch(() => [] as PodmanNetwork[]);
 
     return { networks } satisfies NetworkListData;
 };
 
 export const action_remove = async ({
-    body, c,
-}: ActionArgs<{ name: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ name: string }>) => {
     const { removeNetwork } = await import(
         "../modules/podman/podman.client.js"
     );
-    const user = c!.get("user");
-    await removeNetwork(body.name, body.scope, user.uid);
+    await removeNetwork(body.name);
     return { ok: true };
 };
 
@@ -64,7 +56,6 @@ export const Component = () => {
                         <thead>
                             <tr>
                                 <th class={css.th}>Name</th>
-                                <th class={css.th}>Scope</th>
                                 <th class={css.th}>Driver</th>
                                 <th class={css.th}>Subnet</th>
                                 <th class={css.th}>Gateway</th>
@@ -79,19 +70,15 @@ export const Component = () => {
                                 const subnet = net.subnets?.[0]?.subnet ?? "-";
                                 const gateway = net.subnets?.[0]?.gateway ?? "-";
                                 return (
-                                    <tr key={`${net.scope}-${net.name}`}>
+                                    <tr key={net.name}>
                                         <td class={css.td}>
                                             <Link
                                                 to={NetworkDetail}
                                                 params={{ name: net.name }}
-                                                search={{ scope: net.scope }}
                                                 class={css.nameLink}
                                             >
                                                 {net.name}
                                             </Link>
-                                        </td>
-                                        <td class={css.td}>
-                                            <ScopeBadge scope={net.scope} />
                                         </td>
                                         <td class={css.td}>{net.driver}</td>
                                         <td class={css.td}>{subnet}</td>
@@ -116,7 +103,7 @@ export const Component = () => {
                                                     variant="danger"
                                                     onClick={async () => {
                                                         if (await confirm(`Remove network ${net.name}?`, { confirmLabel: "Remove" }))
-                                                            run(action_remove({ body: { name: net.name, scope: net.scope } }), "Network removed");
+                                                            run(action_remove({ body: { name: net.name } }), "Network removed");
                                                     }}
                                                 />
                                             </div>

@@ -40,17 +40,17 @@ function formatBytes(bytes: number): string {
 }
 
 export const loader = async ({ c }: LoaderArgs) => {
-    const { listAllContainers } = await import(
+    const { listContainers } = await import(
         "../modules/podman/podman.client.js"
     );
-    const { listAllQuadlets } = await import(
+    const { listQuadlets } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
 
     const user = c.get("user");
     const [containers, quadlets] = await Promise.all([
-        listAllContainers(user).catch(() => [] as PodmanContainer[]),
-        listAllQuadlets(user).catch(() => [] as QuadletListItem[]),
+        listContainers().catch(() => [] as PodmanContainer[]),
+        listQuadlets(user).catch(() => [] as QuadletListItem[]),
     ]);
     return { containers, quadlets } satisfies DashboardData;
 };

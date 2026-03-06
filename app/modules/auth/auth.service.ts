@@ -95,7 +95,7 @@ async function pamAuthenticate(username: string, password: string): Promise<void
     });
 }
 
-export async function getUserInfo(username: string): Promise<Omit<AuthUser, "hasSudo">> {
+export async function getUserInfo(username: string): Promise<AuthUser> {
     validateUsername(username);
 
     const [uidRes, gidRes, groupsRes, homeRes] = await Promise.all([
@@ -116,9 +116,7 @@ export async function getUserInfo(username: string): Promise<Omit<AuthUser, "has
 
 export async function authenticate(username: string, password: string): Promise<AuthUser> {
     await pamAuthenticate(username, password);
-    const info = await getUserInfo(username);
-    const hasSudo = info.groups.includes("wheel") || info.groups.includes("sudo");
-    return { ...info, hasSudo };
+    return getUserInfo(username);
 }
 
 export async function createToken(user: AuthUser): Promise<string> {
@@ -127,7 +125,6 @@ export async function createToken(user: AuthUser): Promise<string> {
         uid: user.uid,
         gid: user.gid,
         groups: user.groups,
-        hasSudo: user.hasSudo,
         homeDir: user.homeDir,
         exp: Math.floor(Date.now() / 1000) + 86400, // 24h
     };
@@ -141,7 +138,6 @@ export async function verifyToken(token: string): Promise<AuthUser> {
         uid: payload.uid as number,
         gid: payload.gid as number,
         groups: payload.groups as string[],
-        hasSudo: payload.hasSudo as boolean,
         homeDir: payload.homeDir as string,
     };
 }

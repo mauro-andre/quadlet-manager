@@ -1,11 +1,7 @@
-import { readFile as fsReadFile, writeFile as fsWriteFile, mkdir, chown } from "node:fs/promises";
+import { readFile as fsReadFile, writeFile as fsWriteFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { execFile as execFileCb } from "node:child_process";
-import { promisify } from "node:util";
 import type { AuthUser } from "../auth/auth.types.js";
 import type { SslMode, ProxyConfig, DomainMapping, ContainerOption } from "./proxy.types.js";
-
-const execFile = promisify(execFileCb);
 
 // Data directory for Caddyfile, certs, etc.
 function getDataDir(): string {
@@ -28,7 +24,6 @@ export async function checkSysctl(): Promise<{ canBindPort80: boolean; currentVa
         const value = parseInt(content.trim(), 10);
         return { canBindPort80: value <= 80, currentValue: value };
     } catch {
-        // If we can't read it, assume it's not available (e.g. inside a container)
         return { canBindPort80: false, currentValue: 1024 };
     }
 }
@@ -47,7 +42,6 @@ export function generateCaddyfile(domains: DomainMapping[], config: ProxyConfig)
 
     const parts: string[] = [];
 
-    // Custom SSL mode needs auto_https off so Caddy doesn't try to get certs for all domains
     if (config.sslMode === "custom") {
         parts.push(`{
     auto_https off
@@ -55,7 +49,6 @@ export function generateCaddyfile(domains: DomainMapping[], config: ProxyConfig)
     }
 
     for (const d of enabled) {
-        // Determine upstream
         const host = d.targetType === "host"
             ? "host.containers.internal"
             : d.containerName;
@@ -71,7 +64,6 @@ export function generateCaddyfile(domains: DomainMapping[], config: ProxyConfig)
             reverseProxyLine = `    reverse_proxy ${host}:${d.containerPort}`;
         }
 
-        // Determine if this domain gets TLS
         const useTls = config.sslMode !== "none" && d.tls;
 
         let siteAddress: string;
@@ -83,7 +75,6 @@ export function generateCaddyfile(domains: DomainMapping[], config: ProxyConfig)
             siteAddress = d.domain;
             tlsLine = "    tls /etc/caddy/certs/cert.pem /etc/caddy/certs/key.pem";
         } else {
-            // letsencrypt — Caddy handles ACME automatically
             siteAddress = d.domain;
         }
 
@@ -139,16 +130,14 @@ WantedBy=default.target
 `;
 }
 
-// ── File helpers (user scope only for proxy) ──────────────────
+// ── File helpers ──────────────────────────────────────────────
 
-async function writeProxyFile(path: string, content: string, user?: AuthUser): Promise<void> {
+async function writeProxyFile(path: string, content: string): Promise<void> {
     await fsWriteFile(path, content, "utf-8");
-    if (user) await chown(path, user.uid, user.gid).catch(() => {});
 }
 
-async function ensureDir(dir: string, user?: AuthUser): Promise<void> {
+async function ensureDir(dir: string): Promise<void> {
     await mkdir(dir, { recursive: true });
-    if (user) await chown(dir, user.uid, user.gid).catch(() => {});
 }
 
 // ── Enable / Disable lifecycle ────────────────────────────────
@@ -166,31 +155,26 @@ export async function enableProxy(
     const dataDir = getDataDir();
     const certsDir = join(dataDir, "certs");
 
-    // Ensure data directories (owned by the user so Caddy container can read them)
-    await ensureDir(dataDir, user);
-    await ensureDir(certsDir, user);
+    await ensureDir(dataDir);
+    await ensureDir(certsDir);
 
-    // Write certs if custom mode
     let certPath: string | null = null;
     let keyPath: string | null = null;
     if (sslMode === "custom" && certContent && keyContent) {
         certPath = join(certsDir, "cert.pem");
         keyPath = join(certsDir, "key.pem");
-        await writeProxyFile(certPath, certContent, user);
-        await writeProxyFile(keyPath, keyContent, user);
+        await writeProxyFile(certPath, certContent);
+        await writeProxyFile(keyPath, keyContent);
     }
 
-    // Update config in store
     proxyStore.upsertConfig(sslMode, certPath, keyPath);
     proxyStore.setEnabled(true);
 
-    // Generate initial Caddyfile
     const config = proxyStore.getConfig();
     const domains = proxyStore.listDomains();
     const caddyfileContent = generateCaddyfile(domains, config);
-    await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent, user);
+    await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent);
 
-    // Create quadlet files (user scope)
     const quadletFiles = [
         { filename: "caddy.network", content: caddyNetworkQuadlet() },
         { filename: "caddy-data.volume", content: caddyDataVolumeQuadlet() },
@@ -200,20 +184,18 @@ export async function enableProxy(
 
     for (const qf of quadletFiles) {
         try {
-            await createQuadlet(qf.filename, qf.content, "user", user);
+            await createQuadlet(qf.filename, qf.content, user);
         } catch (err) {
-            // If already exists, overwrite it
             if (err instanceof Error && err.message.includes("already exists")) {
                 const { saveQuadlet } = await import("../quadlet/quadlet.service.js");
-                await saveQuadlet(qf.filename, qf.content, "user", user);
+                await saveQuadlet(qf.filename, qf.content, user);
             } else {
                 throw err;
             }
         }
     }
 
-    // Start Caddy service
-    await startService("caddy.service", "user", user);
+    await startService("caddy.service");
 }
 
 export async function disableProxy(user: AuthUser): Promise<void> {
@@ -221,11 +203,9 @@ export async function disableProxy(user: AuthUser): Promise<void> {
     const { stopService, disableService } = await import("../systemd/systemd.service.js");
     const { deleteQuadlet } = await import("../quadlet/quadlet.service.js");
 
-    // Stop and disable Caddy service
-    await stopService("caddy.service", "user", user).catch(() => {});
-    await disableService("caddy.service", "user", user).catch(() => {});
+    await stopService("caddy.service").catch(() => {});
+    await disableService("caddy.service").catch(() => {});
 
-    // Delete quadlet files
     const quadletFiles = [
         "caddy.container",
         "caddy-data.volume",
@@ -234,16 +214,15 @@ export async function disableProxy(user: AuthUser): Promise<void> {
     ];
 
     for (const filename of quadletFiles) {
-        await deleteQuadlet(filename, "user", user).catch(() => {});
+        await deleteQuadlet(filename, user).catch(() => {});
     }
 
-    // Mark as disabled (keep domains and certs for re-enable)
     proxyStore.setEnabled(false);
 }
 
 // ── Caddyfile regeneration ────────────────────────────────────
 
-export async function regenerateCaddyfile(user: AuthUser): Promise<void> {
+export async function regenerateCaddyfile(): Promise<void> {
     const { proxyStore } = await import("./proxy.store.js");
     const { restartService } = await import("../systemd/systemd.service.js");
 
@@ -252,16 +231,15 @@ export async function regenerateCaddyfile(user: AuthUser): Promise<void> {
     const dataDir = getDataDir();
 
     const caddyfileContent = generateCaddyfile(domains, config);
-    await ensureDir(dataDir, user);
-    await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent, user);
+    await ensureDir(dataDir);
+    await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent);
 
-    // Restart Caddy to pick up changes
-    await restartService("caddy.service", "user", user);
+    await restartService("caddy.service");
 }
 
 // ── Status ────────────────────────────────────────────────────
 
-export async function getProxyStatus(user: AuthUser): Promise<{
+export async function getProxyStatus(): Promise<{
     config: ProxyConfig;
     domains: DomainMapping[];
     serviceStatus: string;
@@ -274,7 +252,7 @@ export async function getProxyStatus(user: AuthUser): Promise<{
 
     let serviceStatus = "inactive";
     if (config.enabled) {
-        const status = await getServiceStatus("caddy.service", "user", user);
+        const status = await getServiceStatus("caddy.service");
         serviceStatus = status.activeState;
     }
 
@@ -283,11 +261,11 @@ export async function getProxyStatus(user: AuthUser): Promise<{
 
 // ── Container listing ─────────────────────────────────────────
 
-export async function getContainersWithPorts(user: AuthUser): Promise<ContainerOption[]> {
+export async function getContainersWithPorts(): Promise<ContainerOption[]> {
     const { listContainers } = await import("../podman/podman.client.js");
     const { inspectContainer } = await import("../podman/podman.client.js");
 
-    const containers = await listContainers("user", user.uid, false).catch(() => []);
+    const containers = await listContainers(false).catch(() => []);
     const results: ContainerOption[] = [];
 
     for (const ct of containers) {
@@ -295,7 +273,6 @@ export async function getContainersWithPorts(user: AuthUser): Promise<ContainerO
         const ports: number[] = [];
         const networks: string[] = [];
 
-        // Get ports from the container listing
         if (ct.Ports) {
             for (const p of ct.Ports) {
                 if (p.container_port && !ports.includes(p.container_port)) {
@@ -304,13 +281,11 @@ export async function getContainersWithPorts(user: AuthUser): Promise<ContainerO
             }
         }
 
-        // Get network info from inspect
         try {
-            const inspect = await inspectContainer(ct.Id, "user", user.uid);
+            const inspect = await inspectContainer(ct.Id);
             if (inspect.NetworkSettings?.Networks) {
                 networks.push(...Object.keys(inspect.NetworkSettings.Networks));
             }
-            // Also get exposed ports from inspect if not already found
             if (inspect.HostConfig?.PortBindings) {
                 for (const portKey of Object.keys(inspect.HostConfig.PortBindings)) {
                     const port = parseInt(portKey, 10);

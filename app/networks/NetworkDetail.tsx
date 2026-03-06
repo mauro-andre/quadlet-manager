@@ -5,9 +5,7 @@ import type {
     PodmanNetwork,
     PodmanContainer,
 } from "../modules/podman/podman.types.js";
-import type { Scope } from "../modules/auth/auth.types.js";
 import { ActionButton } from "../components/ActionButton.js";
-import { ScopeBadge } from "../components/ScopeBadge.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
 import * as NetworkList from "./NetworkList.js";
@@ -17,32 +15,28 @@ import * as css from "./NetworkDetail.css.js";
 interface NetworkDetailData {
     network: PodmanNetwork;
     containers: PodmanContainer[];
-    scope: Scope;
 }
 
-export const loader = async ({ params, query, c }: LoaderArgs) => {
+export const loader = async ({ params }: LoaderArgs) => {
     const { inspectNetwork, listContainersByNetwork } = await import(
         "../modules/podman/podman.client.js"
     );
 
-    const user = c.get("user");
-    const scope: Scope = query.scope === "system" ? "system" : "user";
     const [network, containers] = await Promise.all([
-        inspectNetwork(params.name!, scope, user.uid),
-        listContainersByNetwork(params.name!, scope, user.uid).catch(() => [] as PodmanContainer[]),
+        inspectNetwork(params.name!),
+        listContainersByNetwork(params.name!).catch(() => [] as PodmanContainer[]),
     ]);
 
-    return { network, containers, scope } satisfies NetworkDetailData;
+    return { network, containers } satisfies NetworkDetailData;
 };
 
 export const action_remove = async ({
-    body, c,
-}: ActionArgs<{ name: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ name: string }>) => {
     const { removeNetwork } = await import(
         "../modules/podman/podman.client.js"
     );
-    const user = c!.get("user");
-    await removeNetwork(body.name, body.scope, user.uid);
+    await removeNetwork(body.name);
     return { ok: true };
 };
 
@@ -54,7 +48,7 @@ export const Component = () => {
     if (loading.value) return <div>Loading...</div>;
     if (!data.value) return <div>Network not found</div>;
 
-    const { network, containers, scope } = data.value;
+    const { network, containers } = data.value;
 
     return (
         <div class={css.page}>
@@ -64,7 +58,6 @@ export const Component = () => {
 
             <div class={css.header}>
                 <h1 class={css.title}>{network.name}</h1>
-                <ScopeBadge scope={scope} />
                 <div class={css.actions}>
                     <ActionButton
                         label="Remove"
@@ -75,7 +68,7 @@ export const Component = () => {
                                 : `Remove network ${network.name}?`;
                             if (await confirm(msg, { confirmLabel: "Remove" })) {
                                 try {
-                                    await action_remove({ body: { name: network.name, scope } });
+                                    await action_remove({ body: { name: network.name } });
                                     toast("Network removed");
                                     navigate("/networks");
                                 } catch {
@@ -157,7 +150,6 @@ export const Component = () => {
                                             <Link
                                                 to={ContainerDetail}
                                                 params={{ id: c.Id.slice(0, 12) }}
-                                                search={{ scope }}
                                                 class={css.nameLink}
                                             >
                                                 {name}

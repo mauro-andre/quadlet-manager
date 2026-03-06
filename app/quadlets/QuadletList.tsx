@@ -2,9 +2,7 @@ import type { LoaderArgs, ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
 import type { QuadletListItem } from "../modules/quadlet/quadlet.types.js";
-import type { Scope } from "../modules/auth/auth.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
-import { ScopeBadge } from "../components/ScopeBadge.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
@@ -17,49 +15,46 @@ interface QuadletListData {
 }
 
 export const loader = async ({ c }: LoaderArgs) => {
-    const { listAllQuadlets } = await import(
+    const { listQuadlets } = await import(
         "../modules/quadlet/quadlet.service.js"
     );
     const user = c.get("user");
-    return { quadlets: await listAllQuadlets(user) } satisfies QuadletListData;
+    return { quadlets: await listQuadlets(user) } satisfies QuadletListData;
 };
 
 export const action_start = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { startService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await startService(body.serviceName, body.scope, user);
+    await startService(body.serviceName);
     return { ok: true };
 };
 
 export const action_stop = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { stopService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await stopService(body.serviceName, body.scope, user);
+    await stopService(body.serviceName);
     return { ok: true };
 };
 
 export const action_restart = async ({
-    body, c,
-}: ActionArgs<{ serviceName: string; scope: Scope }>) => {
+    body,
+}: ActionArgs<{ serviceName: string }>) => {
     const { restartService } = await import(
         "../modules/systemd/systemd.service.js"
     );
-    const user = c!.get("user");
-    await restartService(body.serviceName, body.scope, user);
+    await restartService(body.serviceName);
     return { ok: true };
 };
 
 export const action_delete = async ({
     body, c,
-}: ActionArgs<{ filename: string; scope: Scope }>) => {
+}: ActionArgs<{ filename: string }>) => {
     const { stopService, disableService } = await import(
         "../modules/systemd/systemd.service.js"
     );
@@ -70,9 +65,9 @@ export const action_delete = async ({
     const user = c!.get("user");
     const serviceName =
         body.filename.replace(/\.[^.]+$/, "") + ".service";
-    await stopService(serviceName, body.scope, user).catch(() => {});
-    await disableService(serviceName, body.scope, user).catch(() => {});
-    await deleteQuadlet(body.filename, body.scope, user);
+    await stopService(serviceName).catch(() => {});
+    await disableService(serviceName).catch(() => {});
+    await deleteQuadlet(body.filename, user);
     return { ok: true };
 };
 
@@ -106,7 +101,6 @@ export const Component = () => {
                             <thead>
                                 <tr>
                                     <th class={css.th}>Name</th>
-                                    <th class={css.th}>Scope</th>
                                     <th class={css.th}>Type</th>
                                     <th class={css.th}>Status</th>
                                     <th class={css.th}>Actions</th>
@@ -117,21 +111,17 @@ export const Component = () => {
                                     const isActive =
                                         q.activeState === "active";
                                     return (
-                                        <tr key={`${q.scope}-${q.filename}`}>
+                                        <tr key={q.filename}>
                                             <td class={css.td}>
                                                 <Link
                                                     to={QuadletEdit}
                                                     params={{
                                                         name: q.filename,
                                                     }}
-                                                    search={{ scope: q.scope }}
                                                     class={css.nameLink}
                                                 >
                                                     {q.filename}
                                                 </Link>
-                                            </td>
-                                            <td class={css.td}>
-                                                <ScopeBadge scope={q.scope} />
                                             </td>
                                             <td class={css.td}>
                                                 <span
@@ -159,14 +149,14 @@ export const Component = () => {
                                                                 label="Stop"
                                                                 onClick={async () => {
                                                                     if (await confirm(`Stop ${q.filename}?`, { variant: "warning", confirmLabel: "Stop" }))
-                                                                        run(action_stop({ body: { serviceName: q.serviceName, scope: q.scope } }), `${q.filename} stopped`);
+                                                                        run(action_stop({ body: { serviceName: q.serviceName } }), `${q.filename} stopped`);
                                                                 }}
                                                             />
                                                             <ActionButton
                                                                 label="Restart"
                                                                 onClick={() =>
                                                                     run(
-                                                                        action_restart({ body: { serviceName: q.serviceName, scope: q.scope } }),
+                                                                        action_restart({ body: { serviceName: q.serviceName } }),
                                                                         `${q.filename} restarted`
                                                                     )
                                                                 }
@@ -178,7 +168,7 @@ export const Component = () => {
                                                             variant="primary"
                                                             onClick={() =>
                                                                 run(
-                                                                    action_start({ body: { serviceName: q.serviceName, scope: q.scope } }),
+                                                                    action_start({ body: { serviceName: q.serviceName } }),
                                                                     `${q.filename} started`
                                                                 )
                                                             }
@@ -189,7 +179,7 @@ export const Component = () => {
                                                         variant="danger"
                                                         onClick={async () => {
                                                             if (await confirm(`Delete ${q.filename}? This cannot be undone.`, { confirmLabel: "Delete" }))
-                                                                run(action_delete({ body: { filename: q.filename, scope: q.scope } }), `${q.filename} deleted`);
+                                                                run(action_delete({ body: { filename: q.filename } }), `${q.filename} deleted`);
                                                         }}
                                                     />
                                                 </div>

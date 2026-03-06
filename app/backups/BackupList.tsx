@@ -25,18 +25,21 @@ interface BackupListData {
 
 // ── Loader ───────────────────────────────────────────────────
 
-export const loader = async ({ c }: LoaderArgs) => {
+export const loader = async () => {
     const { backupStore } = await import("../modules/backup/backup.store.js");
     const { checkRclone, getRunningPolicies } = await import("../modules/backup/backup.service.js");
-    const { listVolumes } = await import("../modules/podman/podman.client.js");
-    const { listContainers } = await import("../modules/podman/podman.client.js");
+    const { listVolumes, listContainers } = await import("../modules/podman/podman.client.js");
 
-    const user = c.get("user");
-    const [hasRclone, volumes, containers] = await Promise.all([
+    const [hasRclone, rawVolumes, rawContainers] = await Promise.all([
         checkRclone(),
-        listVolumes("user", user.uid).catch(() => []),
-        listContainers("user", user.uid, true).catch(() => []),
+        listVolumes().catch(() => []),
+        listContainers(true).catch(() => []),
     ]);
+
+    const volumes = rawVolumes.map((v) => v.Name);
+    const containers = rawContainers
+        .map((c) => c.Names?.[0] ?? "")
+        .filter(Boolean);
 
     const policies = backupStore.listPolicies();
     const historyByPolicy: Record<number, BackupHistory[]> = {};
@@ -49,8 +52,8 @@ export const loader = async ({ c }: LoaderArgs) => {
         storages: backupStore.listStorages(),
         policies,
         historyByPolicy,
-        volumes: volumes.map((v: { Name: string }) => v.Name),
-        containers: containers.map((c: { Names: string[] }) => c.Names?.[0] ?? "").filter(Boolean),
+        volumes,
+        containers,
         runningPolicies: getRunningPolicies(),
     } satisfies BackupListData;
 };
@@ -436,7 +439,8 @@ export const Component = () => {
         const body = {
             name: pName.value.trim(), type: pType.value, target: pTarget.value.trim(),
             credentials: pCredentials.value, database: pDatabase.value,
-            storageId: pStorageId.value, frequency: pFrequency.value, retention: pRetention.value,
+            storageId: pStorageId.value,
+            frequency: pFrequency.value, retention: pRetention.value,
         };
         if (editingPolicy.value) {
             run(action_updatePolicy({ body: { id: editingPolicy.value.id, ...body } }), "Policy updated", refetch);

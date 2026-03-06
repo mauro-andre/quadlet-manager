@@ -1,6 +1,6 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { randomBytes } from "node:crypto";
-import type { AuthUser, Scope } from "../auth/auth.types.js";
+import type { AuthUser } from "../auth/auth.types.js";
 
 // Python script that creates a real PTY and bridges stdin/stdout.
 // Resize commands are sent as JSON lines on stdin: {"resize": [cols, rows]}
@@ -125,28 +125,14 @@ export function createHostTerminal(
 ): TerminalSession {
     const id = generateId();
     const shell = process.env.SHELL || "/bin/bash";
-
     const args = ["-c", PTY_SCRIPT, shell, "--login"];
 
-    // If running as root, use runuser to spawn as the logged-in user
-    let cmd: string;
-    let cmdArgs: string[];
-
-    if (process.getuid?.() === 0) {
-        cmd = "runuser";
-        cmdArgs = ["-u", user.username, "--", "python3", ...args];
-    } else {
-        cmd = "python3";
-        cmdArgs = args;
-    }
-
-    const proc = spawn(cmd, cmdArgs, {
+    const proc = spawn("python3", args, {
         stdio: ["pipe", "pipe", "pipe"],
         env: buildEnv(user),
         cwd: user.homeDir,
     });
 
-    // Set initial size
     sendResize(proc, cols, rows);
 
     const session: TerminalSession = { id, process: proc, cols, rows };
@@ -162,54 +148,26 @@ export function createHostTerminal(
 export function createContainerTerminal(
     user: AuthUser,
     containerName: string,
-    scope: Scope,
     cols: number,
     rows: number,
 ): TerminalSession {
     const id = generateId();
 
-    // Build the podman exec command
-    // Try bash first for better UX (readline, tab completion, PS1),
-    // fall back to sh for minimal containers (alpine, busybox, etc.)
     const podmanArgs = [
         "exec", "-it",
         "-e", "TERM=xterm-256color",
         containerName,
         "sh", "-c", "bash || exec sh",
     ];
-    let execCmd: string[];
 
-    if (scope === "system") {
-        execCmd = ["sudo", "-n", "podman", ...podmanArgs];
-    } else {
-        execCmd = ["podman", ...podmanArgs];
-    }
+    const args = ["-c", PTY_SCRIPT, "podman", ...podmanArgs];
 
-    const args = ["-c", PTY_SCRIPT, ...execCmd];
-
-    let cmd: string;
-    let cmdArgs: string[];
-
-    if (process.getuid?.() === 0 && scope === "user") {
-        cmd = "runuser";
-        cmdArgs = ["-u", user.username, "--", "python3", ...args];
-    } else {
-        cmd = "python3";
-        cmdArgs = args;
-    }
-
-    const env = buildEnv(user);
-    if (scope === "user") {
-        env.XDG_RUNTIME_DIR = `/run/user/${user.uid}`;
-    }
-
-    const proc = spawn(cmd, cmdArgs, {
+    const proc = spawn("python3", args, {
         stdio: ["pipe", "pipe", "pipe"],
-        env,
+        env: buildEnv(user),
         cwd: user.homeDir,
     });
 
-    // Set initial size
     sendResize(proc, cols, rows);
 
     const session: TerminalSession = { id, process: proc, cols, rows };

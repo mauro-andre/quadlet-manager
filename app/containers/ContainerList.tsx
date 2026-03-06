@@ -4,10 +4,8 @@ import { useLoader } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { useEffect, useRef } from "preact/hooks";
 import type { PodmanContainer } from "../modules/podman/podman.types.js";
-import type { Scope } from "../modules/auth/auth.types.js";
 import type { MetricPoint } from "../modules/metrics/metrics.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
-import { ScopeBadge } from "../components/ScopeBadge.js";
 import * as ContainerDetail from "./ContainerDetail.js";
 import * as css from "./ContainerList.css.js";
 
@@ -18,22 +16,15 @@ function formatBytes(bytes: number): string {
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
-interface ContainerWithScope extends PodmanContainer {
-    scope: Scope;
-}
-
 interface ContainerListData {
-    containers: ContainerWithScope[];
+    containers: PodmanContainer[];
 }
 
-export const loader = async ({ c }: LoaderArgs) => {
-    const { listAllContainers } = await import(
+export const loader = async () => {
+    const { listContainers } = await import(
         "../modules/podman/podman.client.js"
     );
-    const user = c.get("user");
-    const containers = await listAllContainers(user).catch(
-        () => [] as ContainerWithScope[]
-    );
+    const containers = await listContainers().catch(() => []);
     return { containers } satisfies ContainerListData;
 };
 
@@ -42,7 +33,6 @@ export const Component = () => {
     const metricsRef = useRef<Record<string, MetricPoint>>({});
     const liveMetrics = useSignal<Record<string, MetricPoint>>({});
 
-    // Fetch initial current metrics + live SSE
     useEffect(() => {
         if (typeof window === "undefined") return;
 
@@ -83,7 +73,6 @@ export const Component = () => {
                                 <tr>
                                     <th class={css.th}>Name</th>
                                     <th class={css.th}>Image</th>
-                                    <th class={css.th}>Scope</th>
                                     <th class={css.th}>Status</th>
                                     <th class={css.th}>CPU</th>
                                     <th class={css.th}>Memory</th>
@@ -100,7 +89,7 @@ export const Component = () => {
                                     const m = liveMetrics.value[c.Id];
                                     const isRunning = c.State === "running";
                                     return (
-                                        <tr key={`${c.scope}-${c.Id}`}>
+                                        <tr key={c.Id}>
                                             <td class={css.td}>
                                                 <Link
                                                     to={ContainerDetail}
@@ -110,7 +99,6 @@ export const Component = () => {
                                                             12
                                                         ),
                                                     }}
-                                                    search={{ scope: c.scope }}
                                                     class={css.nameLink}
                                                 >
                                                     {name}
@@ -118,9 +106,6 @@ export const Component = () => {
                                             </td>
                                             <td class={css.td}>
                                                 {c.Image}
-                                            </td>
-                                            <td class={css.td}>
-                                                <ScopeBadge scope={c.scope} />
                                             </td>
                                             <td class={css.td}>
                                                 <StatusBadge

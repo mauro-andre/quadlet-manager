@@ -109,14 +109,12 @@ async function dumpRaw(volumeName: string): Promise<string> {
     const filename = backupFilename(volumeName, "raw");
     const tmpPath = join("/tmp", filename);
 
-    // Export as tar, then gzip in-place (gzip replaces file.tar with file.tar.gz)
     const tarPath = tmpPath.replace(/\.gz$/, "");
     await execFile("podman", [
         "volume", "export", volumeName, "--output", tarPath,
     ], { timeout: 0 });
 
     await execFile("gzip", ["-f", tarPath], { timeout: 0 });
-    // gzip produces tarPath.gz, rename to our expected filename
     await rename(`${tarPath}.gz`, tmpPath).catch(() => {});
 
     return tmpPath;
@@ -150,9 +148,8 @@ async function dumpPostgresql(container: string, credentials: string | null, dat
     const pass = credentials?.split(":")[1];
     const db = database ?? "postgres";
 
-    const env = pass ? `PGPASSWORD=${pass}` : "";
     const args = ["exec"];
-    if (env) args.push("-e", env);
+    if (pass) args.push("-e", `PGPASSWORD=${pass}`);
     args.push(container, "pg_dump", "-U", user, "-Fc", db);
 
     const { stdout } = await execFile("podman", args, {
