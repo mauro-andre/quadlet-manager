@@ -1,4 +1,4 @@
-import { style, keyframes } from "@vanilla-extract/css";
+import { style, keyframes, styleVariants } from "@vanilla-extract/css";
 import { vars } from "../styles/theme.css.js";
 
 export const page = style({
@@ -151,4 +151,66 @@ export const progressFill = style({
     borderRadius: "2px",
     backgroundColor: vars.color.primary,
     animation: `${indeterminate} 1.5s ease-in-out infinite`,
+});
+
+export const checkButton = style({
+    display: "inline-flex",
+    alignItems: "center",
+    padding: `${vars.space.sm} ${vars.space.md}`,
+    backgroundColor: vars.color.bgSurfaceActive,
+    color: vars.color.text,
+    borderRadius: vars.radius.md,
+    fontSize: vars.fontSize.sm,
+    fontWeight: 500,
+    cursor: "pointer",
+    border: `1px solid ${vars.color.border}`,
+    ":hover": {
+        backgroundColor: vars.color.bgSurfaceHover,
+    },
+    selectors: {
+        "&:disabled": {
+            opacity: 0.6,
+            cursor: "not-allowed",
+        },
+    },
+});
+
+export const headerActions = style({
+    display: "flex",
+    gap: vars.space.sm,
+    alignItems: "center",
+});
+
+const updateBadgeBase = style({
+    display: "inline-flex",
+    alignItems: "center",
+    gap: vars.space.xs,
+    padding: `2px ${vars.space.sm}`,
+    borderRadius: vars.radius.sm,
+    fontSize: vars.fontSize.xs,
+    fontWeight: 600,
+    whiteSpace: "nowrap",
+});
+
+export const updateBadge = styleVariants({
+    "update-available": [updateBadgeBase, {
+        backgroundColor: "rgba(108, 140, 255, 0.15)",
+        color: vars.color.primary,
+    }],
+    "restart-pending": [updateBadgeBase, {
+        backgroundColor: "rgba(252, 196, 25, 0.15)",
+        color: vars.color.warning,
+    }],
+    "tag-removed": [updateBadgeBase, {
+        backgroundColor: "rgba(255, 107, 107, 0.15)",
+        color: vars.color.danger,
+    }],
+    "up-to-date": [updateBadgeBase, {
+        backgroundColor: "rgba(81, 207, 102, 0.15)",
+        color: vars.color.success,
+    }],
+    unknown: [updateBadgeBase, {
+        backgroundColor: "rgba(139, 144, 160, 0.15)",
+        color: vars.color.textMuted,
+    }],
 });

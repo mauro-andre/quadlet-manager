@@ -50,12 +50,21 @@ export async function listQuadlets(user: AuthUser): Promise<QuadletListItem[]> {
         files.map(async (filename) => {
             const serviceName = filenameToServiceName(filename);
             const status = await getServiceStatus(serviceName);
+
+            let image: string | undefined;
+            if (extname(filename) === ".container") {
+                const content = await readFile(join(dir, filename), "utf-8").catch(() => "");
+                const match = content.match(/^Image\s*=\s*(.+)$/m);
+                if (match) image = match[1]!.trim();
+            }
+
             return {
                 name: basename(filename, extname(filename)),
                 type: extensionToType(extname(filename)),
                 filename,
                 serviceName,
                 activeState: status.activeState,
+                image,
             };
         })
     );

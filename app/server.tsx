@@ -49,6 +49,7 @@ addRoutes((app: Hono) => {
     registerSystemEndpoints(app);
     registerPodmanEndpoints(app);
     registerPullEndpoints(app);
+    registerImageUpdateEndpoints(app);
     registerProxyEndpoints(app);
 });
 
@@ -288,6 +289,20 @@ function registerPullEndpoints(app: Hono) {
             stream.onAbort(() => { unsubscribe(); });
             await new Promise<void>(() => {});
         });
+    });
+}
+
+function registerImageUpdateEndpoints(app: Hono) {
+    app.post("/api/images/check-updates", async (c) => {
+        const { checkImageUpdates } = await import(
+            "./modules/image-update/image-update.service.js"
+        );
+        const { images, checkContainers } = await c.req.json<{ images: string[]; checkContainers?: boolean }>();
+        if (!Array.isArray(images)) {
+            return c.json({ error: "Missing images array" }, 400);
+        }
+        const results = await checkImageUpdates(images, checkContainers ?? true);
+        return c.json(results);
     });
 }
 

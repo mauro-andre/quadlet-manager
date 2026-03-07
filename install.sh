@@ -33,7 +33,18 @@ command -v podman >/dev/null 2>&1 || error "Podman is not installed"
 command -v systemctl >/dev/null 2>&1 || error "systemctl is not available"
 command -v python3 >/dev/null 2>&1 || error "Python 3 is not installed (required for terminal PTY)"
 
-# --- Install rclone (for backups) ---
+# --- Install optional dependencies ---
+
+if ! command -v skopeo >/dev/null 2>&1; then
+    info "Installing skopeo (required for image update checks)..."
+    if command -v dnf >/dev/null 2>&1; then
+        sudo dnf install -y skopeo >/dev/null 2>&1 || warn "Failed to install skopeo. Image update checks will not be available."
+    elif command -v apt-get >/dev/null 2>&1; then
+        sudo apt-get install -y skopeo >/dev/null 2>&1 || warn "Failed to install skopeo. Image update checks will not be available."
+    else
+        warn "Could not install skopeo — unsupported package manager. Image update checks will not be available."
+    fi
+fi
 
 if ! command -v rclone >/dev/null 2>&1; then
     info "Installing rclone (required for backups)..."

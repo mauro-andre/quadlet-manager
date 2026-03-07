@@ -15,4 +15,5 @@ export interface QuadletListItem {
     filename: string;
     serviceName: string;
     activeState: string;
+    image?: string;
 }

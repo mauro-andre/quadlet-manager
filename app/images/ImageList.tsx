@@ -4,6 +4,7 @@ import { useLoader } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import type { PodmanImage } from "../modules/podman/podman.types.js";
+import type { ImageCheckResult } from "../modules/image-update/image-update.service.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
@@ -59,9 +60,34 @@ export const action_remove = async ({
     return { ok: true };
 };
 
+const UPDATE_LABELS: Record<string, string> = {
+    "update-available": "Update available",
+    "restart-pending": "Restart pending",
+    "tag-removed": "Tag removed",
+    "up-to-date": "Up to date",
+    unknown: "Unknown",
+};
+
 export const Component = () => {
     const { data, loading, refetch } = useLoader<ImageListData>();
     const activePulls = useSignal<Map<string, PullProgress>>(new Map());
+    const updateResults = useSignal<Record<string, ImageCheckResult> | null>(null);
+    const checking = useSignal(false);
+
+    const recheckImage = async (imageRef: string) => {
+        try {
+            const res = await fetch("/api/images/check-updates", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ images: [imageRef], checkContainers: false }),
+            });
+            if (!res.ok) return;
+            const result = await res.json() as Record<string, ImageCheckResult>;
+            if (updateResults.value && result[imageRef]) {
+                updateResults.value = { ...updateResults.value, [imageRef]: result[imageRef]! };
+            }
+        } catch {}
+    };
 
     useEffect(() => {
         if (typeof window === "undefined") return;
@@ -101,6 +127,7 @@ export const Component = () => {
             activePulls.value = map;
             toast(`Pulled ${event.reference}`);
             refetch();
+            recheckImage(event.reference);
         });
 
         es.addEventListener("pull-error", (e: MessageEvent) => {
@@ -135,13 +162,61 @@ export const Component = () => {
             .then(() => { toast(msg); refetch(); })
             .catch(() => toast("Action failed", "error"));
 
+    const checkUpdates = async () => {
+        const imageRefs = images
+            .filter((img) => img.RepoTags && img.RepoTags.length > 0 && img.RepoTags[0] !== "<none>:<none>")
+            .map((img) => img.RepoTags![0]!);
+        if (imageRefs.length === 0) {
+            toast("No tagged images to check", "warning");
+            return;
+        }
+        checking.value = true;
+        try {
+            const res = await fetch("/api/images/check-updates", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ images: imageRefs, checkContainers: false }),
+            });
+            if (!res.ok) throw new Error();
+            updateResults.value = await res.json();
+            toast("Update check complete");
+        } catch {
+            toast("Failed to check for updates", "error");
+        } finally {
+            checking.value = false;
+        }
+    };
+
+    const pullImage = async (imageRef: string) => {
+        try {
+            const res = await fetch("/api/images/pull", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ reference: imageRef }),
+            });
+            if (!res.ok) throw new Error();
+            toast(`Pulling ${imageRef}...`);
+        } catch {
+            toast("Failed to start pull", "error");
+        }
+    };
+
     return (
         <div class={css.page}>
             <div class={css.header}>
                 <h1 class={css.title}>Images</h1>
-                <button class={css.pullButton} onClick={openPullModal}>
-                    Pull Image
-                </button>
+                <div class={css.headerActions}>
+                    <button
+                        class={css.checkButton}
+                        onClick={checkUpdates}
+                        disabled={checking.value}
+                    >
+                        {checking.value ? "Checking..." : "Check Updates"}
+                    </button>
+                    <button class={css.pullButton} onClick={openPullModal}>
+                        Pull Image
+                    </button>
+                </div>
             </div>
 
             {pulls.length > 0 && (
@@ -186,12 +261,16 @@ export const Component = () => {
                                 <th class={css.th}>Size</th>
                                 <th class={css.th}>Created</th>
                                 <th class={css.th}>Containers</th>
+                                {updateResults.value && (
+                                    <th class={css.th}>Update</th>
+                                )}
                                 <th class={css.th}>Actions</th>
                             </tr>
                         </thead>
                         <tbody>
                             {images.map((img) => {
                                 const tag = formatTag(img);
+                                const update = updateResults.value?.[tag];
                                 return (
                                     <tr key={img.Id}>
                                         <td class={css.td}>
@@ -209,8 +288,26 @@ export const Component = () => {
                                             {new Date(img.Created * 1000).toLocaleString()}
                                         </td>
                                         <td class={css.td}>{img.Containers}</td>
+                                        {updateResults.value && (
+                                            <td class={css.td}>
+                                                {update ? (
+                                                    <span class={css.updateBadge[update.status]}>
+                                                        {UPDATE_LABELS[update.status]}
+                                                    </span>
+                                                ) : (
+                                                    <span class={css.updateBadge.unknown}>—</span>
+                                                )}
+                                            </td>
+                                        )}
                                         <td class={css.td}>
                                             <div class={css.actionsCell}>
+                                                {update?.needsPull && (
+                                                    <ActionButton
+                                                        label="Pull"
+                                                        variant="primary"
+                                                        onClick={() => pullImage(tag)}
+                                                    />
+                                                )}
                                                 <ActionButton
                                                     label="Remove"
                                                     variant="danger"
