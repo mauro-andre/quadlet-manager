@@ -279,41 +279,34 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, onUpdat
                         <span class={css.pairLabel}>{spec.leftLabel}</span>
                         <div class={css.inputWithAction}>
                             {isVolumeSource && !showLeftCustom ? (
-                                <select
-                                    class={css.entrySelect}
-                                    value={leftIsVolume || !left ? left : "__custom__"}
-                                    onChange={(e) => {
-                                        const val = (e.target as HTMLSelectElement).value;
-                                        if (val === "__custom__") {
-                                            customValue.value = true;
-                                            updatePair("", right);
-                                        } else {
-                                            updatePair(val, right);
-                                        }
+                                <SearchableSelect
+                                    options={volumeOptions}
+                                    value={leftIsVolume ? left : ""}
+                                    placeholder="Select volume"
+                                    onChange={(val) => updatePair(val, right)}
+                                    onCustom={() => {
+                                        customValue.value = true;
+                                        updatePair("", right);
                                     }}
-                                >
-                                    <option value="">— Select volume —</option>
-                                    {volumeOptions.map((v) => (
-                                        <option key={v} value={v}>{v}</option>
-                                    ))}
-                                    <option value="__custom__">Custom path...</option>
-                                </select>
-                            ) : (
-                                <input
-                                    class={css.entryInput}
-                                    value={left}
-                                    onInput={(e) => updatePair((e.target as HTMLInputElement).value, right)}
-                                    placeholder={isVolumeSource ? "/host/path or volume" : spec.leftLabel}
                                 />
-                            )}
-                            {isVolumeSource && showLeftCustom && (
-                                <button
-                                    class={css.removeBtn}
-                                    onClick={() => { customValue.value = false; }}
-                                    title="Switch back to dropdown"
-                                >
-                                    ↩
-                                </button>
+                            ) : (
+                                <>
+                                    <input
+                                        class={css.entryInput}
+                                        value={left}
+                                        onInput={(e) => updatePair((e.target as HTMLInputElement).value, right)}
+                                        placeholder={isVolumeSource ? "/host/path or volume" : spec.leftLabel}
+                                    />
+                                    {isVolumeSource && showLeftCustom && (
+                                        <button
+                                            class={css.removeBtn}
+                                            onClick={() => { customValue.value = false; }}
+                                            title="Switch back to dropdown"
+                                        >
+                                            ↩
+                                        </button>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>
@@ -346,42 +339,29 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, onUpdat
                 <span class={css.entryDesc}>{spec.description}</span>
                 <div class={css.inputWithAction}>
                     {showCustom ? (
-                        <input
-                            class={css.entryInput}
-                            value={entry.value}
-                            onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
-                            placeholder="Custom value"
-                        />
+                        <>
+                            <input
+                                class={css.entryInput}
+                                value={entry.value}
+                                onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
+                                placeholder="Custom value"
+                            />
+                            <button
+                                class={css.removeBtn}
+                                onClick={() => { customValue.value = false; }}
+                                title="Switch back to dropdown"
+                            >
+                                ↩
+                            </button>
+                        </>
                     ) : (
-                        <select
-                            class={css.entrySelect}
+                        <SearchableSelect
+                            options={spec.options.map((o) => o.value)}
                             value={entry.value}
-                            onChange={(e) => {
-                                const val = (e.target as HTMLSelectElement).value;
-                                if (val === "__custom__") {
-                                    customValue.value = true;
-                                } else {
-                                    updateValue(val);
-                                }
-                            }}
-                        >
-                            <option value="">— Select —</option>
-                            {spec.options.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                    {opt.value} — {opt.description}
-                                </option>
-                            ))}
-                            <option value="__custom__">Custom...</option>
-                        </select>
-                    )}
-                    {showCustom && (
-                        <button
-                            class={css.removeBtn}
-                            onClick={() => { customValue.value = false; }}
-                            title="Switch back to dropdown"
-                        >
-                            ↩
-                        </button>
+                            placeholder="Select"
+                            onChange={updateValue}
+                            onCustom={() => { customValue.value = true; }}
+                        />
                     )}
                 </div>
                 <button class={css.removeBtn} onClick={() => onRemove(sectionIdx, entryIdx)} title="Remove">
@@ -405,40 +385,29 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, onUpdat
                 <span class={css.entryDesc}>{spec?.description}</span>
                 <div class={css.inputWithAction}>
                     {showCustomImg ? (
-                        <input
-                            class={css.entryInput}
-                            value={entry.value}
-                            onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
-                            placeholder="docker.io/library/nginx:latest"
-                        />
+                        <>
+                            <input
+                                class={css.entryInput}
+                                value={entry.value}
+                                onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
+                                placeholder="docker.io/library/nginx:latest"
+                            />
+                            <button
+                                class={css.removeBtn}
+                                onClick={() => { customValue.value = false; }}
+                                title="Switch back to dropdown"
+                            >
+                                ↩
+                            </button>
+                        </>
                     ) : (
-                        <select
-                            class={css.entrySelect}
+                        <SearchableSelect
+                            options={imageOptions}
                             value={entry.value}
-                            onChange={(e) => {
-                                const val = (e.target as HTMLSelectElement).value;
-                                if (val === "__custom__") {
-                                    customValue.value = true;
-                                } else {
-                                    updateValue(val);
-                                }
-                            }}
-                        >
-                            <option value="">— Select image —</option>
-                            {imageOptions.map((img) => (
-                                <option key={img} value={img}>{img}</option>
-                            ))}
-                            <option value="__custom__">Custom...</option>
-                        </select>
-                    )}
-                    {showCustomImg && (
-                        <button
-                            class={css.removeBtn}
-                            onClick={() => { customValue.value = false; }}
-                            title="Switch back to dropdown"
-                        >
-                            ↩
-                        </button>
+                            placeholder="Select image"
+                            onChange={updateValue}
+                            onCustom={() => { customValue.value = true; }}
+                        />
                     )}
                 </div>
                 <button class={css.removeBtn} onClick={() => onRemove(sectionIdx, entryIdx)} title="Remove">
@@ -462,40 +431,29 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, onUpdat
                 <span class={css.entryDesc}>{spec?.description}</span>
                 <div class={css.inputWithAction}>
                     {showCustomNet ? (
-                        <input
-                            class={css.entryInput}
-                            value={entry.value}
-                            onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
-                            placeholder="Network name"
-                        />
+                        <>
+                            <input
+                                class={css.entryInput}
+                                value={entry.value}
+                                onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
+                                placeholder="Network name"
+                            />
+                            <button
+                                class={css.removeBtn}
+                                onClick={() => { customValue.value = false; }}
+                                title="Switch back to dropdown"
+                            >
+                                ↩
+                            </button>
+                        </>
                     ) : (
-                        <select
-                            class={css.entrySelect}
+                        <SearchableSelect
+                            options={networkOptions}
                             value={entry.value}
-                            onChange={(e) => {
-                                const val = (e.target as HTMLSelectElement).value;
-                                if (val === "__custom__") {
-                                    customValue.value = true;
-                                } else {
-                                    updateValue(val);
-                                }
-                            }}
-                        >
-                            <option value="">— Select network —</option>
-                            {networkOptions.map((n) => (
-                                <option key={n} value={n}>{n}</option>
-                            ))}
-                            <option value="__custom__">Custom...</option>
-                        </select>
-                    )}
-                    {showCustomNet && (
-                        <button
-                            class={css.removeBtn}
-                            onClick={() => { customValue.value = false; }}
-                            title="Switch back to dropdown"
-                        >
-                            ↩
-                        </button>
+                            placeholder="Select network"
+                            onChange={updateValue}
+                            onCustom={() => { customValue.value = true; }}
+                        />
                     )}
                 </div>
                 <button class={css.removeBtn} onClick={() => onRemove(sectionIdx, entryIdx)} title="Remove">
@@ -535,6 +493,109 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, onUpdat
             <button class={css.removeBtn} onClick={() => onRemove(sectionIdx, entryIdx)} title="Remove">
                 ×
             </button>
+        </div>
+    );
+}
+
+// ---------------------------------------------------------------------------
+// SearchableSelect — custom dropdown with search filter
+// ---------------------------------------------------------------------------
+
+interface SearchableSelectProps {
+    options: string[];
+    value: string;
+    placeholder: string;
+    onChange: (value: string) => void;
+    onCustom: () => void;
+}
+
+function SearchableSelect({ options, value, placeholder, onChange, onCustom }: SearchableSelectProps) {
+    const open = useSignal(false);
+    const search = useSignal("");
+    const wrapperRef = useRef<HTMLDivElement>(null);
+    const searchRef = useRef<HTMLInputElement>(null);
+
+    useEffect(() => {
+        if (!open.value) return;
+        const handler = (e: MouseEvent) => {
+            if (wrapperRef.current && !wrapperRef.current.contains(e.target as Node)) {
+                open.value = false;
+                search.value = "";
+            }
+        };
+        document.addEventListener("mousedown", handler);
+        return () => document.removeEventListener("mousedown", handler);
+    }, [open.value]);
+
+    useEffect(() => {
+        if (open.value && searchRef.current) {
+            searchRef.current.focus();
+        }
+    }, [open.value]);
+
+    const query = search.value.toLowerCase();
+    const sorted = [...options].sort((a, b) => a.localeCompare(b));
+    const filtered = sorted.filter((o) => !query || o.toLowerCase().includes(query));
+
+    return (
+        <div class={css.dropdownWrapper} ref={wrapperRef} style={{ flex: 1, minWidth: 0 }}>
+            <button
+                type="button"
+                class={css.selectTrigger}
+                onClick={() => { open.value = !open.value; search.value = ""; }}
+            >
+                {value ? (
+                    <span class={css.selectTriggerValue}>{value}</span>
+                ) : (
+                    <span class={css.selectTriggerPlaceholder}>{placeholder}</span>
+                )}
+                <span class={css.selectTriggerArrow}>▼</span>
+            </button>
+            {open.value && (
+                <div class={css.selectDropdown}>
+                    <div class={css.dropdownSearch}>
+                        <input
+                            ref={searchRef}
+                            class={css.dropdownSearchInput}
+                            type="text"
+                            placeholder="Search..."
+                            value={search.value}
+                            onInput={(e) => { search.value = (e.target as HTMLInputElement).value; }}
+                        />
+                    </div>
+                    {filtered.map((opt) => (
+                        <div
+                            key={opt}
+                            class={css.dropdownItem}
+                            onClick={() => {
+                                onChange(opt);
+                                open.value = false;
+                                search.value = "";
+                            }}
+                        >
+                            <span class={css.dropdownItemKey}>{opt}</span>
+                        </div>
+                    ))}
+                    {(!query || "custom".includes(query)) && (
+                        <div
+                            class={css.dropdownItem}
+                            onClick={() => {
+                                onCustom();
+                                open.value = false;
+                                search.value = "";
+                            }}
+                        >
+                            <span class={css.dropdownItemKey}>Custom...</span>
+                            <span class={css.dropdownItemDesc}>Enter a custom value</span>
+                        </div>
+                    )}
+                    {filtered.length === 0 && query && !("custom".includes(query)) && (
+                        <div class={css.dropdownItem} style={{ opacity: 0.5, cursor: "default" }}>
+                            <span class={css.dropdownItemDesc}>No results found</span>
+                        </div>
+                    )}
+                </div>
+            )}
         </div>
     );
 }

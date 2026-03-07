@@ -119,20 +119,6 @@ export const entryInput = style({
     },
 });
 
-export const entrySelect = style({
-    flex: 1,
-    padding: `${vars.space.xs} ${vars.space.sm}`,
-    backgroundColor: vars.color.bg,
-    color: vars.color.text,
-    border: `1px solid ${vars.color.border}`,
-    borderRadius: vars.radius.sm,
-    fontSize: vars.fontSize.sm,
-    outline: "none",
-    minWidth: 0,
-    ":focus": {
-        borderColor: vars.color.primary,
-    },
-});
 
 export const entryKeyInput = style({
     width: "140px",
@@ -275,6 +261,58 @@ export const dropdownItemDesc = style({
 export const dropdownWrapper = style({
     position: "relative",
     display: "inline-block",
+});
+
+// Searchable select trigger
+export const selectTrigger = style({
+    flex: 1,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: `${vars.space.xs} ${vars.space.sm}`,
+    backgroundColor: vars.color.bg,
+    color: vars.color.text,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.sm,
+    fontSize: vars.fontSize.sm,
+    cursor: "pointer",
+    minWidth: 0,
+    ":hover": {
+        borderColor: vars.color.primary,
+    },
+});
+
+export const selectTriggerPlaceholder = style({
+    color: vars.color.textMuted,
+});
+
+export const selectTriggerValue = style({
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+});
+
+export const selectTriggerArrow = style({
+    flexShrink: 0,
+    marginLeft: vars.space.xs,
+    fontSize: vars.fontSize.xs,
+    color: vars.color.textMuted,
+});
+
+export const selectDropdown = style({
+    position: "absolute",
+    zIndex: 100,
+    backgroundColor: vars.color.bgSurface,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.md,
+    boxShadow: vars.shadow.md,
+    maxHeight: "280px",
+    overflowY: "auto",
+    minWidth: "280px",
+    width: "100%",
+    top: "100%",
+    left: 0,
+    marginTop: "2px",
 });
 
 // Form container
