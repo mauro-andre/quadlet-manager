@@ -13,6 +13,7 @@ import {
     getSectionSpec,
     getDirectiveSpec,
     type DirectiveSpec,
+    type SectionSpec,
 } from "../modules/quadlet/quadlet.directives.js";
 import * as css from "./QuadletEditor.css.js";
 
@@ -22,11 +23,26 @@ interface PodmanResources {
     networks: string[];
 }
 
-interface QuadletEditorProps {
-    content: Signal<string>;
+export interface SectionsConfig {
+    allSections: SectionSpec[];
+    getSectionSpec: (name: string) => SectionSpec | undefined;
+    getDirectiveSpec: (sectionName: string, key: string) => DirectiveSpec | undefined;
 }
 
-export function QuadletEditor({ content }: QuadletEditorProps) {
+const defaultSectionsConfig: SectionsConfig = {
+    allSections: SECTIONS,
+    getSectionSpec,
+    getDirectiveSpec,
+};
+
+interface QuadletEditorProps {
+    content: Signal<string>;
+    sectionsConfig?: SectionsConfig;
+    fetchResources?: boolean;
+}
+
+export function QuadletEditor({ content, sectionsConfig, fetchResources = true }: QuadletEditorProps) {
+    const config = sectionsConfig ?? defaultSectionsConfig;
     const mode = useSignal<"form" | "code">("form");
     const sections = useSignal<QuadletSection[]>(parseQuadlet(content.value));
     const revision = useSignal(0);
@@ -34,7 +50,7 @@ export function QuadletEditor({ content }: QuadletEditorProps) {
 
     // Fetch available images, volumes and networks for form dropdowns
     useEffect(() => {
-        if (typeof window === "undefined") return;
+        if (typeof window === "undefined" || !fetchResources) return;
         Promise.all([
             fetch("/api/podman/images").then((r) => r.json()).catch(() => []),
             fetch("/api/podman/volumes").then((r) => r.json()).catch(() => []),
@@ -149,6 +165,7 @@ export function QuadletEditor({ content }: QuadletEditorProps) {
                             section={section}
                             sectionIdx={sIdx}
                             resources={resources.value}
+                            config={config}
                             onAddEntry={addEntry}
                             onUpdateEntry={updateEntry}
                             onRemoveEntry={removeEntry}
@@ -157,6 +174,7 @@ export function QuadletEditor({ content }: QuadletEditorProps) {
                     ))}
                     <AddSectionButton
                         existingSections={sections.value.map((s) => s.name)}
+                        allSections={config.allSections}
                         onAdd={addSection}
                     />
                 </div>
@@ -173,6 +191,7 @@ interface SectionCardProps {
     section: QuadletSection;
     sectionIdx: number;
     resources: PodmanResources;
+    config: SectionsConfig;
     onAddEntry: (sectionIdx: number, key: string, value: string) => void;
     onUpdateEntry: (sectionIdx: number, entryIdx: number, entry: QuadletEntry) => void;
     onRemoveEntry: (sectionIdx: number, entryIdx: number) => void;
@@ -183,12 +202,13 @@ function SectionCard({
     section,
     sectionIdx,
     resources,
+    config,
     onAddEntry,
     onUpdateEntry,
     onRemoveEntry,
     onRemoveSection,
 }: SectionCardProps) {
-    const spec = getSectionSpec(section.name);
+    const spec = config.getSectionSpec(section.name);
 
     return (
         <div class={css.sectionCard}>
@@ -214,6 +234,7 @@ function SectionCard({
                         sectionIdx={sectionIdx}
                         entryIdx={eIdx}
                         resources={resources}
+                        config={config}
                         onUpdate={onUpdateEntry}
                         onRemove={onRemoveEntry}
                     />
@@ -223,6 +244,7 @@ function SectionCard({
                 <AddDirectiveButton
                     sectionName={section.name}
                     existingEntries={section.entries}
+                    config={config}
                     onAdd={(key) => onAddEntry(sectionIdx, key, "")}
                 />
             </div>
@@ -240,12 +262,13 @@ interface EntryRowProps {
     sectionIdx: number;
     entryIdx: number;
     resources: PodmanResources;
+    config: SectionsConfig;
     onUpdate: (sectionIdx: number, entryIdx: number, entry: QuadletEntry) => void;
     onRemove: (sectionIdx: number, entryIdx: number) => void;
 }
 
-function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, onUpdate, onRemove }: EntryRowProps) {
-    const spec = getDirectiveSpec(sectionName, entry.key);
+function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, config, onUpdate, onRemove }: EntryRowProps) {
+    const spec = config.getDirectiveSpec(sectionName, entry.key);
     const isMapped = !!spec;
     const customValue = useSignal(false);
 
@@ -607,10 +630,11 @@ function SearchableSelect({ options, value, placeholder, onChange, onCustom }: S
 interface AddDirectiveButtonProps {
     sectionName: string;
     existingEntries: QuadletEntry[];
+    config: SectionsConfig;
     onAdd: (key: string) => void;
 }
 
-function AddDirectiveButton({ sectionName, existingEntries, onAdd }: AddDirectiveButtonProps) {
+function AddDirectiveButton({ sectionName, existingEntries, config, onAdd }: AddDirectiveButtonProps) {
     const open = useSignal(false);
     const search = useSignal("");
     const wrapperRef = useRef<HTMLDivElement>(null);
@@ -636,7 +660,7 @@ function AddDirectiveButton({ sectionName, existingEntries, onAdd }: AddDirectiv
         }
     }, [open.value]);
 
-    const spec = getSectionSpec(sectionName);
+    const spec = config.getSectionSpec(sectionName);
     const existingKeys = new Set(existingEntries.map((e) => e.key));
 
     // Filter: available, sorted alphabetically, filtered by search
@@ -707,10 +731,11 @@ function AddDirectiveButton({ sectionName, existingEntries, onAdd }: AddDirectiv
 
 interface AddSectionButtonProps {
     existingSections: string[];
+    allSections: SectionSpec[];
     onAdd: (name: string) => void;
 }
 
-function AddSectionButton({ existingSections, onAdd }: AddSectionButtonProps) {
+function AddSectionButton({ existingSections, allSections, onAdd }: AddSectionButtonProps) {
     const open = useSignal(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
 
@@ -726,7 +751,7 @@ function AddSectionButton({ existingSections, onAdd }: AddSectionButtonProps) {
     }, [open.value]);
 
     const existing = new Set(existingSections);
-    const available = SECTIONS.filter((s) => !existing.has(s.name));
+    const available = allSections.filter((s) => !existing.has(s.name));
 
     if (available.length === 0) return null;
 

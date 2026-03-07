@@ -22,6 +22,9 @@ import * as DomainList from "./domains/DomainList.js";
 import * as HostTerminal from "./terminal/HostTerminal.js";
 import * as ContainerTerminal from "./containers/ContainerTerminal.js";
 import * as BackupList from "./backups/BackupList.js";
+import * as SystemdList from "./systemd/SystemdList.js";
+import * as SystemdNew from "./systemd/SystemdNew.js";
+import * as SystemdEdit from "./systemd/SystemdEdit.js";
 import * as SettingsPage from "./settings/SettingsPage.js";
 
 export default [
@@ -44,6 +47,9 @@ export default [
                     { path: "/quadlets", module: QuadletList },
                     { path: "/quadlets/new", module: QuadletNew },
                     { path: "/quadlets/:name", module: QuadletEdit },
+                    { path: "/systemd", module: SystemdList },
+                    { path: "/systemd/new", module: SystemdNew },
+                    { path: "/systemd/:name", module: SystemdEdit },
                     { path: "/images", module: ImageList },
                     { path: "/images/:id", module: ImageDetail },
                     { path: "/volumes", module: VolumeList },

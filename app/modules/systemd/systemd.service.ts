@@ -36,6 +36,10 @@ export async function restartService(serviceName: string): Promise<void> {
     await execCmd(systemctlCmd(["restart", serviceName]));
 }
 
+export async function enableService(serviceName: string): Promise<void> {
+    await execCmd(systemctlCmd(["enable", serviceName]));
+}
+
 export async function disableService(serviceName: string): Promise<void> {
     await execCmd(systemctlCmd(["disable", serviceName]));
 }

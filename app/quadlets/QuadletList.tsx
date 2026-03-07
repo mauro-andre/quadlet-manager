@@ -114,10 +114,18 @@ export const Component = () => {
     const { data, loading, refetch } = useLoader<QuadletListData>();
     const updateResults = useSignal<Record<string, ImageCheckResult> | null>(null);
     const checking = useSignal(false);
+    const search = useSignal("");
+    const typeFilter = useSignal("all");
 
     if (loading.value) return <div>Loading...</div>;
 
-    const quadlets = data.value?.quadlets ?? [];
+    const allQuadlets = data.value?.quadlets ?? [];
+    const query = search.value.toLowerCase();
+    const quadlets = allQuadlets.filter((q) => {
+        if (typeFilter.value !== "all" && q.type !== typeFilter.value) return false;
+        if (query && !q.filename.toLowerCase().includes(query)) return false;
+        return true;
+    });
 
     const run = (action: Promise<unknown>, msg: string) =>
         action
@@ -140,7 +148,7 @@ export const Component = () => {
     };
 
     const checkUpdates = async () => {
-        const images = quadlets
+        const images = allQuadlets
             .filter((q) => q.type === "container" && q.image)
             .map((q) => q.image!);
         if (images.length === 0) {
@@ -219,6 +227,25 @@ export const Component = () => {
                             New Quadlet
                         </Link>
                     </div>
+                </div>
+                <div class={css.toolbar}>
+                    <input
+                        class={css.searchInput}
+                        type="text"
+                        placeholder="Search quadlets..."
+                        value={search.value}
+                        onInput={(e) => { search.value = (e.target as HTMLInputElement).value; }}
+                    />
+                    <select
+                        class={css.filterSelect}
+                        value={typeFilter.value}
+                        onChange={(e) => { typeFilter.value = (e.target as HTMLSelectElement).value; }}
+                    >
+                        <option value="all">All types</option>
+                        <option value="container">Containers</option>
+                        <option value="network">Networks</option>
+                        <option value="volume">Volumes</option>
+                    </select>
                 </div>
                 <div class={css.tableWrapper}>
                     {quadlets.length === 0 ? (

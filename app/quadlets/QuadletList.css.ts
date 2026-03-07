@@ -119,6 +119,40 @@ export const headerActions = style({
     alignItems: "center",
 });
 
+export const toolbar = style({
+    display: "flex",
+    gap: vars.space.sm,
+    alignItems: "center",
+});
+
+export const searchInput = style({
+    padding: `${vars.space.sm} ${vars.space.md}`,
+    backgroundColor: vars.color.bgSurface,
+    color: vars.color.text,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.md,
+    fontSize: vars.fontSize.sm,
+    outline: "none",
+    minWidth: "200px",
+    ":focus": {
+        borderColor: vars.color.primary,
+    },
+});
+
+export const filterSelect = style({
+    padding: `${vars.space.sm} ${vars.space.md}`,
+    backgroundColor: vars.color.bgSurface,
+    color: vars.color.text,
+    border: `1px solid ${vars.color.border}`,
+    borderRadius: vars.radius.md,
+    fontSize: vars.fontSize.sm,
+    outline: "none",
+    cursor: "pointer",
+    ":focus": {
+        borderColor: vars.color.primary,
+    },
+});
+
 const updateBadgeBase = style({
     display: "inline-flex",
     alignItems: "center",
