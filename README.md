@@ -37,7 +37,7 @@ Optional (installed automatically if missing):
 Run as your regular user (not root):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mauro-andre/quadlet-manager/main/install.sh | bash
+curl -fsSL https://github.com/mauro-andre/quadlet-manager/releases/latest/download/install.sh | bash
 ```
 
 This will:
@@ -63,7 +63,7 @@ Access the UI at `http://your-server:3000` and login with your Linux user creden
 Re-run the install script — it will download the latest version and preserve your data:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/mauro-andre/quadlet-manager/main/install.sh | bash
+curl -fsSL https://github.com/mauro-andre/quadlet-manager/releases/latest/download/install.sh | bash
 ```
 
 Or update directly from the **Settings** page in the web UI.
