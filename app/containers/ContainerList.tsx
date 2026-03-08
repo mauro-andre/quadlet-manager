@@ -1,4 +1,4 @@
-import type { LoaderArgs } from "velojs";
+import type { LoaderArgs, ActionArgs } from "velojs";
 import { Link } from "velojs";
 import { useLoader } from "velojs/hooks";
 import { useSignal } from "@preact/signals";
@@ -6,6 +6,9 @@ import { useEffect, useRef } from "preact/hooks";
 import type { PodmanContainer } from "../modules/podman/podman.types.js";
 import type { MetricPoint } from "../modules/metrics/metrics.types.js";
 import { StatusBadge } from "../components/StatusBadge.js";
+import { ActionButton } from "../components/ActionButton.js";
+import { toast } from "../components/toast.js";
+import { confirm } from "../components/confirm.js";
 import * as ContainerDetail from "./ContainerDetail.js";
 import * as css from "./ContainerList.css.js";
 
@@ -20,6 +23,14 @@ interface ContainerListData {
     containers: PodmanContainer[];
 }
 
+export const action_prune = async () => {
+    const { pruneContainers } = await import(
+        "../modules/podman/podman.client.js"
+    );
+    const result = await pruneContainers();
+    return { ok: true, count: result?.length ?? 0 };
+};
+
 export const loader = async () => {
     const { listContainers } = await import(
         "../modules/podman/podman.client.js"
@@ -29,7 +40,7 @@ export const loader = async () => {
 };
 
 export const Component = () => {
-    const { data, loading } = useLoader<ContainerListData>();
+    const { data, loading, refetch } = useLoader<ContainerListData>();
     const metricsRef = useRef<Record<string, MetricPoint>>({});
     const liveMetrics = useSignal<Record<string, MetricPoint>>({});
 
@@ -58,9 +69,24 @@ export const Component = () => {
 
     const containers = data.value?.containers ?? [];
 
+    const run = (action: Promise<unknown>, msg: string) =>
+        action
+            .then((r: any) => { toast(r?.count != null ? `${msg} (${r.count} removed)` : msg); refetch(); })
+            .catch(() => toast("Action failed", "error"));
+
     return (
         <div class={css.page}>
-                <h1 class={css.title}>Containers</h1>
+                <div class={css.header}>
+                    <h1 class={css.title}>Containers</h1>
+                    <ActionButton
+                        label="Prune Stopped"
+                        variant="danger"
+                        onClick={async () => {
+                            if (await confirm("Remove all stopped containers?", { confirmLabel: "Prune" }))
+                                run(action_prune(), "Containers pruned");
+                        }}
+                    />
+                </div>
                 <div class={css.tableWrapper}>
                     {containers.length === 0 ? (
                         <div class={css.empty}>

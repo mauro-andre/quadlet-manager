@@ -192,6 +192,42 @@ export async function removeVolume(name: string, force: boolean = false): Promis
     );
 }
 
+export async function pruneContainers(): Promise<{ Id: string; Size: number }[]> {
+    const socket = getSocket();
+    return podmanRequest<{ Id: string; Size: number }[]>(
+        `/containers/prune`,
+        socket,
+        "POST"
+    );
+}
+
+export async function pruneImages(): Promise<{ Id: string; Size: number }[]> {
+    const socket = getSocket();
+    return podmanRequest<{ Id: string; Size: number }[]>(
+        `/images/prune?all=false`,
+        socket,
+        "POST"
+    );
+}
+
+export async function pruneNetworks(): Promise<{ Name: string; Error: string }[]> {
+    const socket = getSocket();
+    return podmanRequest<{ Name: string; Error: string }[]>(
+        `/networks/prune`,
+        socket,
+        "POST"
+    );
+}
+
+export async function pruneVolumes(): Promise<{ Id: string; Size: number }[]> {
+    const socket = getSocket();
+    return podmanRequest<{ Id: string; Size: number }[]>(
+        `/volumes/prune`,
+        socket,
+        "POST"
+    );
+}
+
 export function podmanStreamPull(
     reference: string,
     onLine: (line: string) => void,

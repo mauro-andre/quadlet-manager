@@ -50,6 +50,14 @@ export const loader = async (_: LoaderArgs) => {
     return { images } satisfies ImageListData;
 };
 
+export const action_prune = async () => {
+    const { pruneImages } = await import(
+        "../modules/podman/podman.client.js"
+    );
+    const result = await pruneImages();
+    return { ok: true, count: result?.length ?? 0 };
+};
+
 export const action_remove = async ({
     body,
 }: ActionArgs<{ id: string }>) => {
@@ -159,7 +167,7 @@ export const Component = () => {
 
     const run = (action: Promise<unknown>, msg: string) =>
         action
-            .then(() => { toast(msg); refetch(); })
+            .then((r: any) => { toast(r?.count != null ? `${msg} (${r.count} removed)` : msg); refetch(); })
             .catch(() => toast("Action failed", "error"));
 
     const checkUpdates = async () => {
@@ -206,6 +214,14 @@ export const Component = () => {
             <div class={css.header}>
                 <h1 class={css.title}>Images</h1>
                 <div class={css.headerActions}>
+                    <ActionButton
+                        label="Prune Dangling"
+                        variant="danger"
+                        onClick={async () => {
+                            if (await confirm("Remove all dangling (unused) images?", { confirmLabel: "Prune" }))
+                                run(action_prune(), "Images pruned");
+                        }}
+                    />
                     <button
                         class={css.checkButton}
                         onClick={checkUpdates}

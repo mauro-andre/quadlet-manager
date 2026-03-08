@@ -50,6 +50,14 @@ export const loader = async (_: LoaderArgs) => {
     return { volumes, dfMap } satisfies VolumeListData;
 };
 
+export const action_prune = async () => {
+    const { pruneVolumes } = await import(
+        "../modules/podman/podman.client.js"
+    );
+    const result = await pruneVolumes();
+    return { ok: true, count: result?.length ?? 0 };
+};
+
 export const action_remove = async ({
     body,
 }: ActionArgs<{ name: string }>) => {
@@ -70,12 +78,22 @@ export const Component = () => {
 
     const run = (action: Promise<unknown>, msg: string) =>
         action
-            .then(() => { toast(msg); refetch(); })
+            .then((r: any) => { toast(r?.count != null ? `${msg} (${r.count} removed)` : msg); refetch(); })
             .catch(() => toast("Action failed", "error"));
 
     return (
         <div class={css.page}>
-            <h1 class={css.title}>Volumes</h1>
+            <div class={css.header}>
+                <h1 class={css.title}>Volumes</h1>
+                <ActionButton
+                    label="Prune Unused"
+                    variant="danger"
+                    onClick={async () => {
+                        if (await confirm("Remove all unused volumes?", { confirmLabel: "Prune" }))
+                            run(action_prune(), "Volumes pruned");
+                    }}
+                />
+            </div>
             <div class={css.tableWrapper}>
                 {volumes.length === 0 ? (
                     <div class={css.empty}>

@@ -21,6 +21,14 @@ export const loader = async (_: LoaderArgs) => {
     return { networks } satisfies NetworkListData;
 };
 
+export const action_prune = async () => {
+    const { pruneNetworks } = await import(
+        "../modules/podman/podman.client.js"
+    );
+    const result = await pruneNetworks();
+    return { ok: true, count: result?.length ?? 0 };
+};
+
 export const action_remove = async ({
     body,
 }: ActionArgs<{ name: string }>) => {
@@ -40,12 +48,22 @@ export const Component = () => {
 
     const run = (action: Promise<unknown>, msg: string) =>
         action
-            .then(() => { toast(msg); refetch(); })
+            .then((r: any) => { toast(r?.count != null ? `${msg} (${r.count} removed)` : msg); refetch(); })
             .catch(() => toast("Action failed", "error"));
 
     return (
         <div class={css.page}>
-            <h1 class={css.title}>Networks</h1>
+            <div class={css.header}>
+                <h1 class={css.title}>Networks</h1>
+                <ActionButton
+                    label="Prune Unused"
+                    variant="danger"
+                    onClick={async () => {
+                        if (await confirm("Remove all unused networks?", { confirmLabel: "Prune" }))
+                            run(action_prune(), "Networks pruned");
+                    }}
+                />
+            </div>
             <div class={css.tableWrapper}>
                 {networks.length === 0 ? (
                     <div class={css.empty}>

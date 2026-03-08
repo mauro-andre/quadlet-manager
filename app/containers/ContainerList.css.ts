@@ -49,6 +49,12 @@ export const nameLink = style({
     },
 });
 
+export const header = style({
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+});
+
 export const empty = style({
     padding: vars.space.xl,
     textAlign: "center",
