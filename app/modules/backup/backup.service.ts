@@ -147,6 +147,19 @@ function serviceUnitName(policyName: string): string {
     return `backup-${safeName(policyName)}.service`;
 }
 
+export async function getNextRun(policyName: string): Promise<string | null> {
+    try {
+        const tName = timerUnitName(policyName);
+        const { stdout } = await execFile("systemctl", [
+            "--user", "show", tName, "--property=NextElapseUSecRealtime",
+        ], { encoding: "utf-8" });
+        const value = stdout.trim().split("=")[1];
+        return value || null;
+    } catch {
+        return null;
+    }
+}
+
 async function generateScript(policy: Policy, storage: Storage): Promise<string> {
     const configPath = rcloneConfigPath(storage.id);
     const remotePath = `backups/${safeName(policy.name)}`;

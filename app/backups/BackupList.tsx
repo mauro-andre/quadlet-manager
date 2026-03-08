@@ -18,6 +18,7 @@ interface BackupListData {
     storages: Storage[];
     policies: Policy[];
     historyByPolicy: Record<string, BackupHistory[]>;
+    nextRuns: Record<string, string | null>;
     volumes: string[];
     containers: string[];
     runningPolicies: string[];
@@ -27,7 +28,7 @@ interface BackupListData {
 
 export const loader = async () => {
     const { backupStore } = await import("../modules/backup/backup.store.js");
-    const { checkRclone, getRunningPolicies } = await import("../modules/backup/backup.service.js");
+    const { checkRclone, getRunningPolicies, getNextRun } = await import("../modules/backup/backup.service.js");
     const { listVolumes, listContainers } = await import("../modules/podman/podman.client.js");
 
     const [hasRclone, rawVolumes, rawContainers] = await Promise.all([
@@ -43,8 +44,10 @@ export const loader = async () => {
 
     const policies = await backupStore.listPolicies();
     const historyByPolicy: Record<string, BackupHistory[]> = {};
+    const nextRuns: Record<string, string | null> = {};
     for (const p of policies) {
         historyByPolicy[p.id] = await backupStore.listHistoryByPolicy(p.id);
+        nextRuns[p.id] = await getNextRun(p.name);
     }
 
     return {
@@ -52,6 +55,7 @@ export const loader = async () => {
         storages: await backupStore.listStorages(),
         policies,
         historyByPolicy,
+        nextRuns,
         volumes,
         containers,
         runningPolicies: getRunningPolicies(),
@@ -293,6 +297,7 @@ export const Component = () => {
     const storages = data.value?.storages ?? [];
     const policies = data.value?.policies ?? [];
     const historyByPolicy = data.value?.historyByPolicy ?? {};
+    const nextRuns = data.value?.nextRuns ?? {};
     const volumes = data.value?.volumes ?? [];
     const containers = data.value?.containers ?? [];
 
@@ -717,6 +722,12 @@ export const Component = () => {
                                                             {p.lastStatus}
                                                         </span>
                                                     )}
+                                                </>
+                                            )}
+                                            {nextRuns[p.id] && p.enabled && (
+                                                <>
+                                                    <span>·</span>
+                                                    <span>Next: {nextRuns[p.id]}</span>
                                                 </>
                                             )}
                                             <span>·</span>
