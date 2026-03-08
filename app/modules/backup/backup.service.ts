@@ -161,7 +161,8 @@ async function generateScript(policy: Policy, storage: Storage): Promise<string>
         `QM_PORT=$(cat ${QM_DATA_DIR}/port 2>/dev/null || echo "3000")`,
         'NOTIFY_URL="http://localhost:${QM_PORT}/api/backups/notify"',
         "",
-        "# Notify QM (silently fails if QM is down)",
+        "# Log to journal + notify QM",
+        "log() { echo \"[backup] $1\" >&2; }",
         "notify() {",
         '    local payload="{\\\"policyId\\\": \\\"$POLICY_ID\\\", \\\"phase\\\": \\\"$1\\\"}"',
         '    if [ -n "${2:-}" ]; then',
@@ -173,6 +174,10 @@ async function generateScript(policy: Policy, storage: Storage): Promise<string>
         "        2>/dev/null || true",
         "}",
         "",
+        'on_error() { log "Backup FAILED"; notify "finished:error"; }',
+        'trap on_error ERR',
+        "",
+        'log "Starting backup: ${POLICY_ID}"',
         'notify "started"',
         "",
     ];
@@ -182,6 +187,7 @@ async function generateScript(policy: Policy, storage: Storage): Promise<string>
         lines.push(
             `MOUNT="${mountpoint}"`,
             "",
+            'log "Syncing volume to remote..."',
             'notify "Syncing..."',
             'podman unshare rclone sync "$MOUNT" "$REMOTE_TARGET/" --config "$RCLONE_CONFIG" -v --stats 1s --stats-one-line 2>&1 | \\',
             "    while IFS= read -r line; do",
@@ -191,6 +197,7 @@ async function generateScript(policy: Policy, storage: Storage): Promise<string>
             "        fi",
             "    done",
             "",
+            'log "Sync completed successfully"',
             'notify "finished:success"',
         );
     } else {
@@ -207,6 +214,7 @@ async function generateScript(policy: Policy, storage: Storage): Promise<string>
             "",
         );
 
+        lines.push('log "Dumping data..."');
         lines.push('notify "Dumping data..."');
 
         switch (policy.type) {
@@ -254,6 +262,7 @@ async function generateScript(policy: Policy, storage: Storage): Promise<string>
         lines.push(
             "",
             "# Upload",
+            'log "Uploading to remote..."',
             'notify "Uploading..."',
             'rclone copy "$TMPFILE" "$REMOTE_TARGET/" --config "$RCLONE_CONFIG" -v --stats 1s --stats-one-line 2>&1 | \\',
             "    while IFS= read -r line; do",
@@ -265,6 +274,7 @@ async function generateScript(policy: Policy, storage: Storage): Promise<string>
             "",
             'FILESIZE=$(stat -c%s "$TMPFILE" 2>/dev/null || echo "0")',
             'BASENAME=$(basename "$TMPFILE")',
+            'log "Backup completed: $BASENAME ($FILESIZE bytes)"',
             'notify "finished:success" "$BASENAME" "$FILESIZE"',
         );
 

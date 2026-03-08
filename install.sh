@@ -60,6 +60,14 @@ loginctl enable-linger "$(whoami)" 2>/dev/null || {
     sudo loginctl enable-linger "$(whoami)" || warn "Failed to enable linger. User services may not survive logout."
 }
 
+# --- Ensure persistent journal ---
+
+if [[ ! -d /var/log/journal ]]; then
+    info "Enabling persistent journal storage..."
+    sudo mkdir -p /var/log/journal
+    sudo journalctl --flush 2>/dev/null || true
+fi
+
 # --- Download ---
 
 TARBALL_URL="https://github.com/${REPO}/releases/download/${VERSION}/quadlet-manager-${VERSION}-linux-x64.tar.gz"
