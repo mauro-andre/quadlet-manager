@@ -1,295 +1,253 @@
-import Database from "better-sqlite3";
+import Datastore, { type Document } from "@seald-io/nedb";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import type { Storage, Policy, BackupHistory, BackupType } from "./backup.types.js";
+import type { Storage, Policy, BackupHistory, BackupType, BackupMode } from "./backup.types.js";
 
-export class BackupStore {
-    private db: Database.Database;
+type Doc<T> = Document<T>;
 
-    constructor(dataDir?: string) {
-        const dir = dataDir ?? join(process.cwd(), ".data");
-        mkdirSync(dir, { recursive: true });
+interface StorageDoc {
+    name: string;
+    endpoint: string;
+    bucket: string;
+    region: string;
+    accessKey: string;
+    secretKey: string;
+}
 
-        const dbPath = join(dir, "backup.db");
-        this.db = new Database(dbPath);
+interface PolicyDoc {
+    name: string;
+    type: BackupType;
+    mode: BackupMode;
+    target: string;
+    credentials: string | null;
+    database: string | null;
+    storageId: string;
+    schedule: string;
+    retention: number;
+    enabled: boolean;
+    lastRunAt: string | null;
+    lastStatus: "success" | "error" | null;
+}
 
-        this.db.pragma("journal_mode = WAL");
-        this.db.pragma("synchronous = NORMAL");
+interface HistoryDoc {
+    policyId: string;
+    policyName: string;
+    timestamp: string;
+    size: number;
+    status: "success" | "error" | "running";
+    error: string | null;
+    remotePath: string;
+}
 
-        this.createTables();
-        this.migrate();
-    }
+const dataDir = join(process.cwd(), ".data", "backup");
+mkdirSync(dataDir, { recursive: true });
 
-    private createTables(): void {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS storages (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL,
-                endpoint    TEXT NOT NULL,
-                bucket      TEXT NOT NULL,
-                region      TEXT NOT NULL DEFAULT '',
-                access_key  TEXT NOT NULL,
-                secret_key  TEXT NOT NULL
-            );
+function createStore<T>(name: string): Datastore<T> {
+    return new Datastore<T>({
+        filename: join(dataDir, `${name}.db`),
+        autoload: true,
+    });
+}
 
-            CREATE TABLE IF NOT EXISTS policies (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                name        TEXT NOT NULL,
-                type        TEXT NOT NULL,
-                target      TEXT NOT NULL,
-                credentials TEXT,
-                database_name TEXT,
-                storage_id  INTEGER NOT NULL REFERENCES storages(id),
-                frequency   INTEGER NOT NULL,
-                retention   INTEGER NOT NULL DEFAULT 24,
-                enabled     INTEGER NOT NULL DEFAULT 1,
-                last_run_at TEXT,
-                last_status TEXT
-            );
+const storages = createStore<StorageDoc>("storages");
+const policies = createStore<PolicyDoc>("policies");
+const history = createStore<HistoryDoc>("history");
 
-            CREATE TABLE IF NOT EXISTS backup_history (
-                id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                policy_id   INTEGER NOT NULL REFERENCES policies(id),
-                policy_name TEXT NOT NULL,
-                timestamp   TEXT NOT NULL,
-                size        INTEGER NOT NULL DEFAULT 0,
-                status      TEXT NOT NULL,
-                error       TEXT,
-                remote_path TEXT NOT NULL
-            );
-        `);
-    }
+// Auto-compact every 5 minutes
+storages.setAutocompactionInterval(300_000);
+policies.setAutocompactionInterval(300_000);
+history.setAutocompactionInterval(300_000);
 
-    private migrate(): void {
-        // Future migrations go here
-    }
+function toStorage(doc: Doc<StorageDoc>): Storage {
+    return {
+        id: doc._id,
+        name: doc.name,
+        endpoint: doc.endpoint,
+        bucket: doc.bucket,
+        region: doc.region,
+        accessKey: doc.accessKey,
+        secretKey: doc.secretKey,
+    };
+}
 
+function toPolicy(doc: Doc<PolicyDoc>, storageName?: string): Policy {
+    return {
+        id: doc._id,
+        name: doc.name,
+        type: doc.type,
+        mode: doc.mode ?? "copy",
+        target: doc.target,
+        credentials: doc.credentials,
+        database: doc.database,
+        storageId: doc.storageId,
+        storageName,
+        schedule: doc.schedule ?? "daily",
+        retention: doc.retention,
+        enabled: doc.enabled,
+        lastRunAt: doc.lastRunAt,
+        lastStatus: doc.lastStatus,
+    };
+}
+
+function toHistory(doc: Doc<HistoryDoc>): BackupHistory {
+    return {
+        id: doc._id,
+        policyId: doc.policyId,
+        policyName: doc.policyName,
+        timestamp: doc.timestamp,
+        size: doc.size,
+        status: doc.status,
+        error: doc.error,
+        remotePath: doc.remotePath,
+    };
+}
+
+export const backupStore = {
     // ── Storages ─────────────────────────────────────────────────
 
-    listStorages(): Storage[] {
-        return this.db.prepare(
-            `SELECT id, name, endpoint, bucket, region, access_key AS accessKey, secret_key AS secretKey FROM storages ORDER BY name`
-        ).all() as Storage[];
-    }
+    async listStorages(): Promise<Storage[]> {
+        const docs = await storages.findAsync({}).sort({ name: 1 }) as unknown as Doc<StorageDoc>[];
+        return docs.map(toStorage);
+    },
 
-    getStorage(id: number): Storage | undefined {
-        const row = this.db.prepare(
-            `SELECT id, name, endpoint, bucket, region, access_key, secret_key FROM storages WHERE id = ?`
-        ).get(id) as {
-            id: number; name: string; endpoint: string; bucket: string;
-            region: string; access_key: string; secret_key: string;
-        } | undefined;
+    async getStorage(id: string): Promise<Storage | undefined> {
+        const doc = await storages.findOneAsync({ _id: id }) as Doc<StorageDoc> | null;
+        return doc ? toStorage(doc) : undefined;
+    },
 
-        if (!row) return undefined;
-        return {
-            id: row.id,
-            name: row.name,
-            endpoint: row.endpoint,
-            bucket: row.bucket,
-            region: row.region,
-            accessKey: row.access_key,
-            secretKey: row.secret_key,
-        };
-    }
+    async addStorage(name: string, endpoint: string, bucket: string, region: string, accessKey: string, secretKey: string): Promise<Storage> {
+        const doc = await storages.insertAsync({ name, endpoint, bucket, region, accessKey, secretKey });
+        return toStorage(doc);
+    },
 
-    addStorage(name: string, endpoint: string, bucket: string, region: string, accessKey: string, secretKey: string): Storage {
-        const result = this.db.prepare(`
-            INSERT INTO storages (name, endpoint, bucket, region, access_key, secret_key)
-            VALUES (?, ?, ?, ?, ?, ?)
-        `).run(name, endpoint, bucket, region, accessKey, secretKey);
+    async updateStorage(id: string, name: string, endpoint: string, bucket: string, region: string, accessKey: string, secretKey: string): Promise<void> {
+        await storages.updateAsync({ _id: id }, { $set: { name, endpoint, bucket, region, accessKey, secretKey } });
+    },
 
-        return {
-            id: Number(result.lastInsertRowid),
-            name, endpoint, bucket, region, accessKey, secretKey,
-        };
-    }
-
-    updateStorage(id: number, name: string, endpoint: string, bucket: string, region: string, accessKey: string, secretKey: string): void {
-        this.db.prepare(`
-            UPDATE storages SET name = ?, endpoint = ?, bucket = ?, region = ?, access_key = ?, secret_key = ? WHERE id = ?
-        `).run(name, endpoint, bucket, region, accessKey, secretKey, id);
-    }
-
-    deleteStorage(id: number): void {
-        this.db.prepare(`DELETE FROM storages WHERE id = ?`).run(id);
-    }
+    async deleteStorage(id: string): Promise<void> {
+        await storages.removeAsync({ _id: id }, {});
+    },
 
     // ── Policies ─────────────────────────────────────────────────
 
-    listPolicies(): Policy[] {
-        const rows = this.db.prepare(`
-            SELECT p.id, p.name, p.type, p.target, p.credentials, p.database_name,
-                   p.storage_id, s.name as storage_name,
-                   p.frequency, p.retention, p.enabled, p.last_run_at, p.last_status
-            FROM policies p
-            LEFT JOIN storages s ON s.id = p.storage_id
-            ORDER BY p.name
-        `).all() as Array<{
-            id: number; name: string; type: BackupType; target: string;
-            credentials: string | null; database_name: string | null;
-            storage_id: number; storage_name: string | null;
-            frequency: number; retention: number; enabled: number;
-            last_run_at: string | null; last_status: string | null;
-        }>;
+    async listPolicies(): Promise<Policy[]> {
+        const docs = await policies.findAsync({}).sort({ name: 1 }) as unknown as Doc<PolicyDoc>[];
+        const allStorageDocs = await storages.findAsync({}) as unknown as Doc<StorageDoc>[];
+        const storageMap = new Map(allStorageDocs.map((s) => [s._id, s.name]));
 
-        return rows.map((r) => ({
-            id: r.id,
-            name: r.name,
-            type: r.type,
-            target: r.target,
-            credentials: r.credentials,
-            database: r.database_name,
-            storageId: r.storage_id,
-            storageName: r.storage_name ?? undefined,
-            frequency: r.frequency,
-            retention: r.retention,
-            enabled: r.enabled === 1,
-            lastRunAt: r.last_run_at,
-            lastStatus: r.last_status as "success" | "error" | null,
-        }));
-    }
+        return docs.map((d) => toPolicy(d, storageMap.get(d.storageId)));
+    },
 
-    getPolicy(id: number): Policy | undefined {
-        const rows = this.listPolicies();
-        return rows.find((p) => p.id === id);
-    }
+    async getPolicy(id: string): Promise<Policy | undefined> {
+        const doc = await policies.findOneAsync({ _id: id }) as Doc<PolicyDoc> | null;
+        if (!doc) return undefined;
+        const s = await storages.findOneAsync({ _id: doc.storageId }) as Doc<StorageDoc> | null;
+        return toPolicy(doc, s?.name);
+    },
 
-    addPolicy(
-        name: string, type: BackupType, target: string,
+    async addPolicy(
+        name: string, type: BackupType, mode: BackupMode, target: string,
         credentials: string | null, database: string | null,
-        storageId: number, frequency: number, retention: number,
-    ): void {
-        this.db.prepare(`
-            INSERT INTO policies (name, type, target, credentials, database_name, storage_id, frequency, retention)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(name, type, target, credentials, database, storageId, frequency, retention);
-    }
-
-    updatePolicy(
-        id: number, name: string, type: BackupType, target: string,
-        credentials: string | null, database: string | null,
-        storageId: number, frequency: number, retention: number,
-    ): void {
-        this.db.prepare(`
-            UPDATE policies SET name = ?, type = ?, target = ?, credentials = ?,
-                   database_name = ?, storage_id = ?, frequency = ?, retention = ?
-            WHERE id = ?
-        `).run(name, type, target, credentials, database, storageId, frequency, retention, id);
-    }
-
-    deletePolicy(id: number): void {
-        this.db.prepare(`DELETE FROM backup_history WHERE policy_id = ?`).run(id);
-        this.db.prepare(`DELETE FROM policies WHERE id = ?`).run(id);
-    }
-
-    togglePolicy(id: number, enabled: boolean): void {
-        this.db.prepare(`UPDATE policies SET enabled = ? WHERE id = ?`).run(enabled ? 1 : 0, id);
-    }
-
-    updatePolicyStatus(id: number, status: "success" | "error"): void {
-        this.db.prepare(`
-            UPDATE policies SET last_run_at = ?, last_status = ? WHERE id = ?
-        `).run(new Date().toISOString(), status, id);
-    }
-
-    getDuePolicies(): Policy[] {
-        const all = this.listPolicies().filter((p) => p.enabled);
-        const now = Date.now();
-        return all.filter((p) => {
-            if (!p.lastRunAt) return true;
-            const elapsed = (now - new Date(p.lastRunAt).getTime()) / 60_000;
-            return elapsed >= p.frequency;
+        storageId: string, schedule: string, retention: number,
+    ): Promise<string> {
+        const doc = await policies.insertAsync({
+            name, type, mode, target, credentials, database,
+            storageId, schedule, retention,
+            enabled: true, lastRunAt: null, lastStatus: null,
         });
-    }
+        return doc._id;
+    },
+
+    async updatePolicy(
+        id: string, name: string, type: BackupType, mode: BackupMode, target: string,
+        credentials: string | null, database: string | null,
+        storageId: string, schedule: string, retention: number,
+    ): Promise<void> {
+        await policies.updateAsync({ _id: id }, {
+            $set: { name, type, mode, target, credentials, database, storageId, schedule, retention },
+        });
+    },
+
+    async deletePolicy(id: string): Promise<void> {
+        await history.removeAsync({ policyId: id }, { multi: true });
+        await policies.removeAsync({ _id: id }, {});
+    },
+
+    async togglePolicy(id: string, enabled: boolean): Promise<void> {
+        await policies.updateAsync({ _id: id }, { $set: { enabled } });
+    },
+
+    async updatePolicyStatus(id: string, status: "success" | "error"): Promise<void> {
+        await policies.updateAsync({ _id: id }, {
+            $set: { lastRunAt: new Date().toISOString(), lastStatus: status },
+        });
+    },
 
     // ── History ──────────────────────────────────────────────────
 
-    listHistory(limit = 50): BackupHistory[] {
-        return this.db.prepare(`
-            SELECT id, policy_id AS policyId, policy_name AS policyName, timestamp,
-                   size, status, error, remote_path AS remotePath
-            FROM backup_history ORDER BY timestamp DESC LIMIT ?
-        `).all(limit) as BackupHistory[];
-    }
+    async listHistory(limit = 50): Promise<BackupHistory[]> {
+        const docs = await history.findAsync({}).sort({ timestamp: -1 }).limit(limit) as unknown as Doc<HistoryDoc>[];
+        return docs.map(toHistory);
+    },
 
-    listHistoryByPolicy(policyId: number): BackupHistory[] {
-        return this.db.prepare(`
-            SELECT id, policy_id AS policyId, policy_name AS policyName, timestamp,
-                   size, status, error, remote_path AS remotePath
-            FROM backup_history WHERE policy_id = ? ORDER BY timestamp DESC
-        `).all(policyId) as BackupHistory[];
-    }
+    async listHistoryByPolicy(policyId: string): Promise<BackupHistory[]> {
+        const docs = await history.findAsync({ policyId }).sort({ timestamp: -1 }) as unknown as Doc<HistoryDoc>[];
+        return docs.map(toHistory);
+    },
 
-    getHistory(id: number): BackupHistory | undefined {
-        return this.db.prepare(`
-            SELECT id, policy_id AS policyId, policy_name AS policyName, timestamp,
-                   size, status, error, remote_path AS remotePath
-            FROM backup_history WHERE id = ?
-        `).get(id) as BackupHistory | undefined;
-    }
+    async getHistory(id: string): Promise<BackupHistory | undefined> {
+        const doc = await history.findOneAsync({ _id: id }) as Doc<HistoryDoc> | null;
+        return doc ? toHistory(doc) : undefined;
+    },
 
-    addHistory(policyId: number, policyName: string, remotePath: string): number {
-        const result = this.db.prepare(`
-            INSERT INTO backup_history (policy_id, policy_name, timestamp, size, status, remote_path)
-            VALUES (?, ?, ?, 0, 'running', ?)
-        `).run(policyId, policyName, new Date().toISOString(), remotePath);
-        return Number(result.lastInsertRowid);
-    }
+    async addHistory(policyId: string, policyName: string, remotePath: string): Promise<string> {
+        const doc = await history.insertAsync({
+            policyId, policyName,
+            timestamp: new Date().toISOString(),
+            size: 0, status: "running" as const,
+            error: null, remotePath,
+        });
+        return doc._id;
+    },
 
-    updateHistorySuccess(id: number, size: number): void {
-        this.db.prepare(`
-            UPDATE backup_history SET status = 'success', size = ? WHERE id = ?
-        `).run(size, id);
-    }
+    async updateHistorySuccess(id: string, size: number): Promise<void> {
+        await history.updateAsync({ _id: id }, { $set: { status: "success", size } });
+    },
 
-    updateHistoryComplete(id: number, size: number, remotePath: string): void {
-        this.db.prepare(`
-            UPDATE backup_history SET status = 'success', size = ?, remote_path = ? WHERE id = ?
-        `).run(size, remotePath, id);
-    }
+    async updateHistoryComplete(id: string, size: number, remotePath: string, timestamp?: string): Promise<void> {
+        const fields: Record<string, unknown> = { status: "success", size, remotePath };
+        if (timestamp) fields.timestamp = timestamp;
+        await history.updateAsync({ _id: id }, { $set: fields });
+    },
 
-    updateHistoryError(id: number, error: string): void {
-        this.db.prepare(`
-            UPDATE backup_history SET status = 'error', error = ? WHERE id = ?
-        `).run(error, id);
-    }
+    async updateHistoryError(id: string, error: string): Promise<void> {
+        await history.updateAsync({ _id: id }, { $set: { status: "error", error } });
+    },
 
-    deleteHistory(id: number): void {
-        this.db.prepare(`DELETE FROM backup_history WHERE id = ?`).run(id);
-    }
+    async deleteHistory(id: string): Promise<void> {
+        await history.removeAsync({ _id: id }, {});
+    },
 
-    pruneHistory(policyId: number, retention: number): BackupHistory[] {
-        const excess = this.db.prepare(`
-            SELECT id, policy_id AS policyId, policy_name AS policyName, timestamp,
-                   size, status, error, remote_path AS remotePath
-            FROM backup_history
-            WHERE policy_id = ? AND status = 'success'
-            ORDER BY timestamp DESC
-            LIMIT -1 OFFSET ?
-        `).all(policyId, retention) as BackupHistory[];
+    async pruneHistory(policyId: string, retention: number): Promise<BackupHistory[]> {
+        const all = await history.findAsync({ policyId, status: "success" }).sort({ timestamp: -1 }) as unknown as Doc<HistoryDoc>[];
+        const excess = all.slice(retention);
 
         if (excess.length > 0) {
-            const ids = excess.map((e) => e.id);
-            this.db.prepare(
-                `DELETE FROM backup_history WHERE id IN (${ids.map(() => "?").join(",")})`
-            ).run(...ids);
+            const ids = excess.map((e) => e._id);
+            await history.removeAsync({ _id: { $in: ids } }, { multi: true });
         }
 
-        return excess;
-    }
+        return excess.map(toHistory);
+    },
 
-    /** Mark any stale "running" entries as error (e.g. after server restart) */
-    cleanupStaleRunning(): void {
-        this.db.prepare(`
-            UPDATE backup_history SET status = 'error', error = 'Interrupted (server restart)'
-            WHERE status = 'running'
-        `).run();
-    }
+    async cleanupStaleRunning(): Promise<void> {
+        await history.updateAsync(
+            { status: "running" },
+            { $set: { status: "error", error: "Interrupted (server restart)" } },
+            { multi: true },
+        );
+    },
+};
 
-    close(): void {
-        this.db.close();
-    }
-}
-
-export const backupStore = new BackupStore();
+// Cleanup stale entries on load
 backupStore.cleanupStaleRunning();

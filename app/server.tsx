@@ -9,9 +9,20 @@ import type { AuthUser } from "./modules/auth/auth.types.js";
 const store = new MetricsStore();
 startCollector(store);
 
-// Start backup scheduler
-import("./modules/backup/backup.service.js").then(({ startScheduler }) => {
-    startScheduler();
+// Backup store auto-cleans stale "running" entries on import
+import("./modules/backup/backup.store.js");
+
+// Write the server port to a file so backup scripts can find it
+onServer(async (httpServer) => {
+    const addr = httpServer.address();
+    if (addr && typeof addr === "object" && addr.port) {
+        const { writeFileSync, mkdirSync } = await import("node:fs");
+        const { homedir } = await import("node:os");
+        const { join } = await import("node:path");
+        const dir = join(homedir(), ".local/share/quadlet-manager");
+        mkdirSync(dir, { recursive: true });
+        writeFileSync(join(dir, "port"), String(addr.port));
+    }
 });
 
 // ============================================
@@ -32,6 +43,17 @@ addRoutes((app: Hono) => {
         );
         const version = await getCurrentVersion();
         return c.json({ version });
+    });
+
+    // Backup script notify — no auth (called by systemd services on localhost)
+    app.post("/api/backups/notify", async (c) => {
+        const { policyId, phase, file, size } = await c.req.json<{ policyId: string; phase: string; file?: string; size?: number }>();
+        if (!policyId || !phase) {
+            return c.json({ error: "Missing policyId or phase" }, 400);
+        }
+        const { handleScriptNotify } = await import("./modules/backup/backup.service.js");
+        handleScriptNotify(policyId, phase, file, size);
+        return c.json({ ok: true });
     });
 
     // Protect all API routes with auth
@@ -76,10 +98,10 @@ function registerMetricsEndpoints(app: Hono) {
     });
 
     // Historical metrics
-    app.get("/api/metrics/:id", (c) => {
+    app.get("/api/metrics/:id", async (c) => {
         const id = c.req.param("id");
         const range = (c.req.query("range") ?? "1h") as TimeRange;
-        const points = store.query(id, range);
+        const points = await store.query(id, range);
         return c.json(points);
     });
 

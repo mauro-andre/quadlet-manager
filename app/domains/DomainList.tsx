@@ -64,7 +64,7 @@ export const action_add = async ({
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    proxyStore.addDomain(body.domain, body.containerName, body.containerPort, body.targetType, body.tls, body.backendHttps);
+    await proxyStore.addDomain(body.domain, body.containerName, body.containerPort, body.targetType, body.tls, body.backendHttps);
     await regenerateCaddyfile();
     return { ok: true };
 };
@@ -72,7 +72,7 @@ export const action_add = async ({
 export const action_update = async ({
     body,
 }: ActionArgs<{
-    id: number;
+    id: string;
     domain: string;
     containerName: string;
     containerPort: number;
@@ -84,31 +84,31 @@ export const action_update = async ({
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    proxyStore.updateDomain(body.id, body.domain, body.containerName, body.containerPort, body.targetType, body.tls, body.backendHttps);
+    await proxyStore.updateDomain(body.id, body.domain, body.containerName, body.containerPort, body.targetType, body.tls, body.backendHttps);
     await regenerateCaddyfile();
     return { ok: true };
 };
 
 export const action_delete = async ({
     body,
-}: ActionArgs<{ id: number }>) => {
+}: ActionArgs<{ id: string }>) => {
     const { proxyStore } = await import("../modules/proxy/proxy.store.js");
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    proxyStore.deleteDomain(body.id);
+    await proxyStore.deleteDomain(body.id);
     await regenerateCaddyfile();
     return { ok: true };
 };
 
 export const action_toggle = async ({
     body,
-}: ActionArgs<{ id: number; enabled: boolean }>) => {
+}: ActionArgs<{ id: string; enabled: boolean }>) => {
     const { proxyStore } = await import("../modules/proxy/proxy.store.js");
     const { regenerateCaddyfile } = await import(
         "../modules/proxy/proxy.service.js"
     );
-    proxyStore.toggleDomain(body.id, body.enabled);
+    await proxyStore.toggleDomain(body.id, body.enabled);
     await regenerateCaddyfile();
     return { ok: true };
 };

@@ -1,13 +1,19 @@
 import { execFile as execFileCb, spawn } from "node:child_process";
 import { promisify } from "node:util";
 import { createReadStream } from "node:fs";
-import { writeFile, unlink, stat, rename } from "node:fs/promises";
+import { writeFile, unlink, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
+import { homedir } from "node:os";
 import { backupStore } from "./backup.store.js";
-import type { Storage, BackupType } from "./backup.types.js";
+import type { Storage, BackupType, BackupMode, Policy } from "./backup.types.js";
 
 const execFile = promisify(execFileCb);
+
+const QM_DATA_DIR = join(homedir(), ".local/share/quadlet-manager");
+const SCRIPTS_DIR = join(QM_DATA_DIR, "scripts");
+const RCLONE_DIR = join(QM_DATA_DIR, "rclone");
+const SYSTEMD_USER_DIR = join(homedir(), ".config/systemd/user");
 
 function spawnWithStdin(cmd: string, args: string[], inputPath: string, timeout = 300_000): Promise<void> {
     return new Promise((resolve, reject) => {
@@ -54,7 +60,7 @@ export async function checkRclone(): Promise<boolean> {
     }
 }
 
-// ── Rclone config helper ─────────────────────────────────────
+// ── Rclone config ───────────────────────────────────────────
 
 function rcloneConfigContent(storage: Storage): string {
     return [
@@ -68,6 +74,21 @@ function rcloneConfigContent(storage: Storage): string {
         "acl = private",
         "no_check_bucket = true",
     ].filter(Boolean).join("\n") + "\n";
+}
+
+function rcloneConfigPath(storageId: string): string {
+    return join(RCLONE_DIR, `storage-${storageId}.conf`);
+}
+
+export async function saveRcloneConfig(storage: Storage): Promise<string> {
+    await mkdir(RCLONE_DIR, { recursive: true });
+    const configPath = rcloneConfigPath(storage.id);
+    await writeFile(configPath, rcloneConfigContent(storage), { mode: 0o600 });
+    return configPath;
+}
+
+export async function deleteRcloneConfig(storageId: string): Promise<void> {
+    await unlink(rcloneConfigPath(storageId)).catch(() => {});
 }
 
 async function withRcloneConfig<T>(storage: Storage, fn: (configPath: string) => Promise<T>): Promise<T> {
@@ -96,139 +117,382 @@ export async function testConnection(storage: Storage): Promise<{ ok: boolean; e
     }
 }
 
-// ── Backup execution ─────────────────────────────────────────
+// ── Volume mountpoint ────────────────────────────────────────
 
-function backupFilename(policyName: string, type: BackupType): string {
-    const ts = new Date().toISOString().replace(/[:.]/g, "-");
-    const safeName = policyName.replace(/[^a-zA-Z0-9_-]/g, "_");
-    const ext = type === "postgresql" ? "dump" : type === "mysql" ? "sql" : type === "redis" ? "rdb" : "gz";
-    return `${safeName}-${ts}.${ext}`;
+async function getVolumeMountpoint(volumeName: string): Promise<string> {
+    const { stdout } = await execFile("podman", [
+        "volume", "inspect", volumeName, "--format", "{{.Mountpoint}}",
+    ]);
+    return stdout.trim();
 }
 
-async function dumpRaw(volumeName: string): Promise<string> {
-    const filename = backupFilename(volumeName, "raw");
-    const tmpPath = join("/tmp", filename);
+// ── Backup script generation ─────────────────────────────────
 
-    const tarPath = tmpPath.replace(/\.gz$/, "");
-    await execFile("podman", [
-        "volume", "export", volumeName, "--output", tarPath,
-    ], { timeout: 0 });
-
-    await execFile("gzip", ["-f", tarPath], { timeout: 0 });
-    await rename(`${tarPath}.gz`, tmpPath).catch(() => {});
-
-    return tmpPath;
+function safeName(name: string): string {
+    return name
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-async function dumpMongodb(container: string, credentials: string | null): Promise<string> {
-    const filename = backupFilename(container, "mongodb");
-    const tmpPath = join("/tmp", filename);
+function scriptPath(policyName: string): string {
+    return join(SCRIPTS_DIR, `backup-${safeName(policyName)}.sh`);
+}
 
-    const args = ["exec", container, "mongodump", "--archive", "--gzip"];
-    if (credentials) {
-        const parts = credentials.split(":");
-        args.push("--username", parts[0] ?? "", "--password", parts.slice(1).join(":"), "--authenticationDatabase", "admin");
+function timerUnitName(policyName: string): string {
+    return `backup-${safeName(policyName)}.timer`;
+}
+
+function serviceUnitName(policyName: string): string {
+    return `backup-${safeName(policyName)}.service`;
+}
+
+async function generateScript(policy: Policy, storage: Storage): Promise<string> {
+    const configPath = rcloneConfigPath(storage.id);
+    const remotePath = `backups/${safeName(policy.name)}`;
+    const remoteTarget = `remote:${storage.bucket}/${remotePath}`;
+    const lines: string[] = [
+        "#!/bin/bash",
+        "set -euo pipefail",
+        "",
+        `POLICY_ID="${policy.id}"`,
+        `RCLONE_CONFIG="${configPath}"`,
+        `REMOTE_TARGET="${remoteTarget}"`,
+        `QM_PORT=$(cat ${QM_DATA_DIR}/port 2>/dev/null || echo "3000")`,
+        'NOTIFY_URL="http://localhost:${QM_PORT}/api/backups/notify"',
+        "",
+        "# Notify QM (silently fails if QM is down)",
+        "notify() {",
+        '    local payload="{\\\"policyId\\\": \\\"$POLICY_ID\\\", \\\"phase\\\": \\\"$1\\\"}"',
+        '    if [ -n "${2:-}" ]; then',
+        '        payload="{\\\"policyId\\\": \\\"$POLICY_ID\\\", \\\"phase\\\": \\\"$1\\\", \\\"file\\\": \\\"$2\\\", \\\"size\\\": ${3:-0}}"',
+        '    fi',
+        '    curl -s -X POST "$NOTIFY_URL" \\',
+        '        -H "Content-Type: application/json" \\',
+        '        -d "$payload" \\',
+        "        2>/dev/null || true",
+        "}",
+        "",
+        'notify "started"',
+        "",
+    ];
+
+    if (policy.mode === "sync") {
+        const mountpoint = await getVolumeMountpoint(policy.target);
+        lines.push(
+            `MOUNT="${mountpoint}"`,
+            "",
+            'notify "Syncing..."',
+            'podman unshare rclone sync "$MOUNT" "$REMOTE_TARGET/" --config "$RCLONE_CONFIG" -v --stats 1s --stats-one-line 2>&1 | \\',
+            "    while IFS= read -r line; do",
+            '        progress=$(echo "$line" | grep -oP "[\\d.]+\\s?\\w+\\s*/\\s*[\\d.]+\\s?\\w+,\\s*\\d+%" || true)',
+            '        if [ -n "$progress" ]; then',
+            '            notify "Syncing $progress"',
+            "        fi",
+            "    done",
+            "",
+            'notify "finished:success"',
+        );
+    } else {
+        const ts='$(date -u +%Y-%m-%dT%H-%M-%S)';
+        const ext = policy.type === "postgresql" ? "dump" : policy.type === "mysql" ? "sql" : policy.type === "redis" ? "rdb" : "gz";
+        const filename = `${safeName(policy.name)}-${ts}.${ext}`;
+
+        lines.push(`TMPFILE="/tmp/${filename}"`);
+        lines.push("");
+
+        lines.push(
+            "cleanup() { rm -f \"$TMPFILE\" \"${TMPFILE%.gz}\"; }",
+            "trap cleanup EXIT",
+            "",
+        );
+
+        lines.push('notify "Dumping data..."');
+
+        switch (policy.type) {
+            case "raw": {
+                lines.push(
+                    'TARFILE="${TMPFILE%.gz}"',
+                    `podman volume export "${policy.target}" --output "$TARFILE"`,
+                    'gzip -f "$TARFILE"',
+                );
+                break;
+            }
+            case "mongodb": {
+                const mongoArgs = ["exec", policy.target, "mongodump", "--archive", "--gzip"];
+                if (policy.credentials) {
+                    const parts = policy.credentials.split(":");
+                    mongoArgs.push("--username", parts[0] ?? "", "--password", parts.slice(1).join(":"), "--authenticationDatabase", "admin");
+                }
+                lines.push(`podman ${mongoArgs.map(a => `"${a}"`).join(" ")} > "$TMPFILE"`);
+                break;
+            }
+            case "postgresql": {
+                const user = policy.credentials?.split(":")[0] ?? "postgres";
+                const pass = policy.credentials?.split(":")[1];
+                const db = policy.database ?? "postgres";
+                lines.push(`podman exec ${pass ? `-e PGPASSWORD="${pass}"` : ""} "${policy.target}" pg_dump -U "${user}" -Fc "${db}" > "$TMPFILE"`);
+                break;
+            }
+            case "mysql": {
+                const user = policy.credentials?.split(":")[0] ?? "root";
+                const pass = policy.credentials?.split(":")[1];
+                const passArg = pass ? `-p"${pass}"` : "";
+                lines.push(`podman exec "${policy.target}" mysqldump -u "${user}" ${passArg} --all-databases > "$TMPFILE"`);
+                break;
+            }
+            case "redis": {
+                lines.push(
+                    `podman exec "${policy.target}" redis-cli bgsave`,
+                    "sleep 2",
+                    `podman cp "${policy.target}:/data/dump.rdb" "$TMPFILE"`,
+                );
+                break;
+            }
+        }
+
+        lines.push(
+            "",
+            "# Upload",
+            'notify "Uploading..."',
+            'rclone copy "$TMPFILE" "$REMOTE_TARGET/" --config "$RCLONE_CONFIG" -v --stats 1s --stats-one-line 2>&1 | \\',
+            "    while IFS= read -r line; do",
+            '        progress=$(echo "$line" | grep -oP "[\\d.]+\\s?\\w+\\s*/\\s*[\\d.]+\\s?\\w+,\\s*\\d+%" || true)',
+            '        if [ -n "$progress" ]; then',
+            '            notify "Uploading $progress"',
+            "        fi",
+            "    done",
+            "",
+            'FILESIZE=$(stat -c%s "$TMPFILE" 2>/dev/null || echo "0")',
+            'BASENAME=$(basename "$TMPFILE")',
+            'notify "finished:success" "$BASENAME" "$FILESIZE"',
+        );
+
+        if (policy.retention > 0) {
+            lines.push(
+                "",
+                "# Prune old backups (keep last N)",
+                `RETENTION=${policy.retention}`,
+                'FILES=$(rclone lsf "$REMOTE_TARGET/" --config "$RCLONE_CONFIG" | sort -r)',
+                'COUNT=0',
+                'echo "$FILES" | while IFS= read -r f; do',
+                '    COUNT=$((COUNT + 1))',
+                '    if [ "$COUNT" -gt "$RETENTION" ]; then',
+                '        rclone deletefile "$REMOTE_TARGET/$f" --config "$RCLONE_CONFIG" 2>/dev/null || true',
+                '    fi',
+                'done',
+            );
+        }
     }
 
-    const { stdout } = await execFile("podman", args, {
-        timeout: 0,
-        encoding: "buffer",
-        maxBuffer: 1024 * 1024 * 1024,
-    });
-
-    await writeFile(tmpPath, stdout);
-    return tmpPath;
+    return lines.join("\n") + "\n";
 }
 
-async function dumpPostgresql(container: string, credentials: string | null, database: string | null): Promise<string> {
-    const filename = backupFilename(container, "postgresql");
-    const tmpPath = join("/tmp", filename);
-
-    const user = credentials?.split(":")[0] ?? "postgres";
-    const pass = credentials?.split(":")[1];
-    const db = database ?? "postgres";
-
-    const args = ["exec"];
-    if (pass) args.push("-e", `PGPASSWORD=${pass}`);
-    args.push(container, "pg_dump", "-U", user, "-Fc", db);
-
-    const { stdout } = await execFile("podman", args, {
-        timeout: 0,
-        encoding: "buffer",
-        maxBuffer: 1024 * 1024 * 1024,
-    });
-
-    await writeFile(tmpPath, stdout);
-    return tmpPath;
+async function writeScript(policy: Policy, storage: Storage): Promise<string> {
+    await mkdir(SCRIPTS_DIR, { recursive: true });
+    const path = scriptPath(policy.name);
+    const content = await generateScript(policy, storage);
+    await writeFile(path, content, { mode: 0o755 });
+    return path;
 }
 
-async function dumpMysql(container: string, credentials: string | null): Promise<string> {
-    const filename = backupFilename(container, "mysql");
-    const tmpPath = join("/tmp", filename);
-
-    const user = credentials?.split(":")[0] ?? "root";
-    const pass = credentials?.split(":")[1];
-
-    const args = ["exec", container, "mysqldump", "-u", user];
-    if (pass) args.push(`-p${pass}`);
-    args.push("--all-databases");
-
-    const { stdout } = await execFile("podman", args, {
-        timeout: 0,
-        encoding: "buffer",
-        maxBuffer: 1024 * 1024 * 1024,
-    });
-
-    await writeFile(tmpPath, stdout);
-    return tmpPath;
+async function deleteScript(policyName: string): Promise<void> {
+    await unlink(scriptPath(policyName)).catch(() => {});
 }
 
-async function dumpRedis(container: string): Promise<string> {
-    const filename = backupFilename(container, "redis");
-    const tmpPath = join("/tmp", filename);
+// ── Systemd timer/service management ─────────────────────────
 
-    await execFile("podman", ["exec", container, "redis-cli", "bgsave"], { timeout: 30_000 });
-    // Wait for save to complete
-    await new Promise((r) => setTimeout(r, 2000));
+async function createTimerUnits(policy: Policy): Promise<void> {
+    await mkdir(SYSTEMD_USER_DIR, { recursive: true });
+    const sName = serviceUnitName(policy.name);
+    const tName = timerUnitName(policy.name);
+    const script = scriptPath(policy.name);
 
-    await execFile("podman", ["cp", `${container}:/data/dump.rdb`, tmpPath], { timeout: 60_000 });
-    return tmpPath;
-}
+    const serviceContent = [
+        "[Unit]",
+        `Description=Backup: ${policy.name}`,
+        "",
+        "[Service]",
+        "Type=oneshot",
+        `ExecStart=/bin/bash ${script}`,
+    ].join("\n") + "\n";
 
-async function createDump(type: BackupType, target: string, credentials: string | null, database: string | null): Promise<string> {
-    switch (type) {
-        case "raw": return dumpRaw(target);
-        case "mongodb": return dumpMongodb(target, credentials);
-        case "postgresql": return dumpPostgresql(target, credentials, database);
-        case "mysql": return dumpMysql(target, credentials);
-        case "redis": return dumpRedis(target);
+    const timerContent = [
+        "[Unit]",
+        `Description=Timer for backup: ${policy.name}`,
+        "",
+        "[Timer]",
+        `OnCalendar=${policy.schedule}`,
+        "Persistent=true",
+        "",
+        "[Install]",
+        "WantedBy=timers.target",
+    ].join("\n") + "\n";
+
+    await writeFile(join(SYSTEMD_USER_DIR, sName), serviceContent);
+    await writeFile(join(SYSTEMD_USER_DIR, tName), timerContent);
+
+    const { daemonReload, enableService, startService } = await import("../systemd/systemd.service.js");
+    await daemonReload();
+
+    if (policy.enabled) {
+        await enableService(tName).catch(() => {});
+        await startService(tName).catch(() => {});
     }
 }
 
-const runningPolicies = new Set<number>();
-const restoringBackups = new Set<number>();
+async function removeTimerUnits(policyName: string): Promise<void> {
+    const tName = timerUnitName(policyName);
+    const sName = serviceUnitName(policyName);
 
-export function isRunning(policyId: number): boolean {
+    const { daemonReload, stopService, disableService } = await import("../systemd/systemd.service.js");
+    await stopService(tName).catch(() => {});
+    await disableService(tName).catch(() => {});
+    await unlink(join(SYSTEMD_USER_DIR, tName)).catch(() => {});
+    await unlink(join(SYSTEMD_USER_DIR, sName)).catch(() => {});
+    await daemonReload();
+}
+
+async function toggleTimerUnit(policyName: string, enabled: boolean): Promise<void> {
+    const tName = timerUnitName(policyName);
+    const { enableService, disableService, startService, stopService } = await import("../systemd/systemd.service.js");
+
+    if (enabled) {
+        await enableService(tName).catch(() => {});
+        await startService(tName).catch(() => {});
+    } else {
+        await stopService(tName).catch(() => {});
+        await disableService(tName).catch(() => {});
+    }
+}
+
+// ── Remote scan (populate history from existing bucket files) ─
+
+async function scanRemoteBackups(policy: Policy, storage: Storage): Promise<void> {
+    if (policy.mode === "sync") return;
+
+    const remotePath = `backups/${safeName(policy.name)}`;
+    const configPath = rcloneConfigPath(storage.id);
+
+    let output: string;
+    try {
+        const result = await execFile("rclone", [
+            "lsf", `remote:${storage.bucket}/${remotePath}/`,
+            "--config", configPath,
+            "--format", "sp",
+            "--separator", ";",
+        ], { timeout: 30_000 });
+        output = result.stdout.trim();
+    } catch {
+        return;
+    }
+
+    if (!output) return;
+
+    for (const line of output.split("\n")) {
+        const sep = line.indexOf(";");
+        if (sep === -1) continue;
+        const sizeStr = line.slice(0, sep);
+        const filename = line.slice(sep + 1);
+        if (!filename) continue;
+
+        const fullRemotePath = `${remotePath}/${filename}`;
+
+        // Extract timestamp: PolicyName-2026-03-08T01-02-03.ext
+        const tsMatch = filename.match(/(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})\./);
+        const timestamp = tsMatch
+            ? `${tsMatch[1]}:${tsMatch[2]}:${tsMatch[3]}.000Z`
+            : new Date().toISOString();
+
+        const historyId = await backupStore.addHistory(policy.id, policy.name, fullRemotePath);
+        await backupStore.updateHistoryComplete(historyId, Number(sizeStr) || 0, fullRemotePath, timestamp);
+    }
+}
+
+// ── Policy lifecycle (called by UI actions) ──────────────────
+
+export async function createPolicy(
+    name: string, type: BackupType, mode: BackupMode, target: string,
+    credentials: string | null, database: string | null,
+    storageId: string, schedule: string, retention: number,
+): Promise<void> {
+    const id = await backupStore.addPolicy(name, type, mode, target, credentials, database, storageId, schedule, retention);
+    const policy = await backupStore.getPolicy(id);
+    if (!policy) throw new Error("Failed to create policy");
+    const storage = await backupStore.getStorage(storageId);
+    if (!storage) throw new Error("Storage not found");
+
+    await saveRcloneConfig(storage);
+    await writeScript(policy, storage);
+    await createTimerUnits(policy);
+    await scanRemoteBackups(policy, storage);
+}
+
+export async function updatePolicy(
+    id: string, name: string, type: BackupType, mode: BackupMode, target: string,
+    credentials: string | null, database: string | null,
+    storageId: string, schedule: string, retention: number,
+): Promise<void> {
+    const oldPolicy = await backupStore.getPolicy(id);
+    if (oldPolicy) {
+        await removeTimerUnits(oldPolicy.name);
+        await deleteScript(oldPolicy.name);
+    }
+
+    await backupStore.updatePolicy(id, name, type, mode, target, credentials, database, storageId, schedule, retention);
+    const policy = await backupStore.getPolicy(id);
+    if (!policy) throw new Error("Policy not found");
+    const storage = await backupStore.getStorage(storageId);
+    if (!storage) throw new Error("Storage not found");
+
+    await saveRcloneConfig(storage);
+    await writeScript(policy, storage);
+    await createTimerUnits(policy);
+}
+
+export async function deletePolicy(id: string): Promise<void> {
+    const policy = await backupStore.getPolicy(id);
+    if (policy) {
+        await removeTimerUnits(policy.name);
+        await deleteScript(policy.name);
+    }
+    await backupStore.deletePolicy(id);
+}
+
+export async function togglePolicy(id: string, enabled: boolean): Promise<void> {
+    const policy = await backupStore.getPolicy(id);
+    await backupStore.togglePolicy(id, enabled);
+    if (policy) {
+        await toggleTimerUnit(policy.name, enabled);
+    }
+}
+
+// ── Run state tracking ───────────────────────────────────────
+
+const runningPolicies = new Set<string>();
+const restoringBackups = new Set<string>();
+
+export function isRunning(policyId: string): boolean {
     return runningPolicies.has(policyId);
 }
 
-export function getRunningPolicies(): number[] {
+export function getRunningPolicies(): string[] {
     return [...runningPolicies];
 }
 
-export function getRestoringBackups(): number[] {
+export function getRestoringBackups(): string[] {
     return [...restoringBackups];
 }
 
 // ── SSE pub/sub ─────────────────────────────────────────────
 
 export type BackupEvent =
-    | { type: "started"; policyId: number }
-    | { type: "progress"; policyId: number; phase: string }
-    | { type: "finished"; policyId: number; status: "success" | "error" }
-    | { type: "restore-started"; historyId: number }
-    | { type: "restore-progress"; historyId: number; phase: string }
-    | { type: "restore-finished"; historyId: number; status: "success" | "error" };
+    | { type: "started"; policyId: string }
+    | { type: "progress"; policyId: string; phase: string }
+    | { type: "finished"; policyId: string; status: "success" | "error" }
+    | { type: "restore-started"; historyId: string }
+    | { type: "restore-progress"; historyId: string; phase: string }
+    | { type: "restore-finished"; historyId: string; status: "success" | "error" };
 
 type BackupEventListener = (event: BackupEvent) => void;
 const listeners = new Set<BackupEventListener>();
@@ -242,96 +506,119 @@ function emit(event: BackupEvent): void {
     for (const fn of listeners) fn(event);
 }
 
-export async function runBackup(policyId: number): Promise<void> {
+/** Called by scripts via POST /api/backups/notify */
+export async function handleScriptNotify(policyId: string, phase: string, file?: string, size?: number): Promise<void> {
+    if (phase === "started") {
+        runningPolicies.add(policyId);
+        const policy = await backupStore.getPolicy(policyId);
+        if (policy) {
+            const remotePath = `backups/${safeName(policy.name)}`;
+            const historyId = await backupStore.addHistory(policyId, policy.name, remotePath);
+            activeHistoryIds.set(policyId, historyId);
+        }
+        emit({ type: "started", policyId });
+    } else if (phase.startsWith("finished:")) {
+        const status = phase.split(":")[1] as "success" | "error";
+        runningPolicies.delete(policyId);
+        await backupStore.updatePolicyStatus(policyId, status);
+
+        const historyId = activeHistoryIds.get(policyId);
+        if (historyId) {
+            if (status === "success") {
+                const policy = await backupStore.getPolicy(policyId);
+                const remotePath = file
+                    ? `backups/${safeName(policy?.name ?? "unknown")}/${file}`
+                    : `backups/${safeName(policy?.name ?? "unknown")}`;
+                await backupStore.updateHistoryComplete(historyId, size ?? 0, remotePath);
+                // Prune old backups
+                if (policy && policy.mode === "copy" && policy.retention > 0) {
+                    const excess = await backupStore.pruneHistory(policyId, policy.retention);
+                    const storage = await backupStore.getStorage(policy.storageId);
+                    if (storage) {
+                        for (const old of excess) {
+                            await deleteRemoteFile(storage, old.remotePath).catch(() => {});
+                        }
+                    }
+                }
+            } else {
+                await backupStore.updateHistoryError(historyId, phase.split(":").slice(2).join(":") || "Backup failed");
+            }
+            activeHistoryIds.delete(policyId);
+        }
+
+        emit({ type: "finished", policyId, status });
+    } else {
+        if (!runningPolicies.has(policyId)) runningPolicies.add(policyId);
+        emit({ type: "progress", policyId, phase });
+    }
+}
+
+// Track active history entries per running policy
+const activeHistoryIds = new Map<string, string>();
+
+/** Run Now — starts the systemd service unit */
+export async function runBackup(policyId: string): Promise<void> {
     if (runningPolicies.has(policyId)) throw new Error("Backup already running for this policy");
-    const policy = backupStore.getPolicy(policyId);
+    const policy = await backupStore.getPolicy(policyId);
     if (!policy) throw new Error("Policy not found");
 
-    const storage = backupStore.getStorage(policy.storageId);
-    if (!storage) throw new Error("Storage not found");
-
-    runningPolicies.add(policyId);
-    emit({ type: "started", policyId });
-    const remotePath = `backups/${policy.name.replace(/[^a-zA-Z0-9_-]/g, "_")}`;
-    const historyId = backupStore.addHistory(policyId, policy.name, remotePath);
-
-    let tmpPath: string | null = null;
-
-    try {
-        // 1. Create dump
-        emit({ type: "progress", policyId, phase: "Dumping data…" });
-        tmpPath = await createDump(policy.type, policy.target, policy.credentials, policy.database);
-
-        // 2. Get file size
-        const fileStat = await stat(tmpPath);
-        const size = fileStat.size;
-
-        // 3. Upload to remote
-        emit({ type: "progress", policyId, phase: "Uploading…" });
-        const filename = tmpPath.split("/").pop()!;
-        await withRcloneConfig(storage, async (configPath) => {
-            await rcloneWithProgress(
-                ["--config", configPath, "copy", tmpPath!, `remote:${storage.bucket}/${remotePath}/`],
-                (phase) => emit({ type: "progress", policyId, phase: `Uploading ${phase}` }),
-            );
-        });
-
-        // 4. Update history + policy status
-        const fullRemotePath = `${remotePath}/${filename}`;
-        backupStore.updateHistoryComplete(historyId, size, fullRemotePath);
-        backupStore.updatePolicyStatus(policyId, "success");
-
-        // 5. Prune old backups
-        const excess = backupStore.pruneHistory(policyId, policy.retention);
-        for (const old of excess) {
-            await deleteRemoteFile(storage, old.remotePath).catch(() => {});
-        }
-        emit({ type: "finished", policyId, status: "success" });
-    } catch (err) {
-        backupStore.updateHistoryError(historyId, (err as Error).message);
-        backupStore.updatePolicyStatus(policyId, "error");
-        emit({ type: "finished", policyId, status: "error" });
-    } finally {
-        runningPolicies.delete(policyId);
-        if (tmpPath) await unlink(tmpPath).catch(() => {});
-    }
+    const sName = serviceUnitName(policy.name);
+    const { startService } = await import("../systemd/systemd.service.js");
+    await startService(sName);
 }
 
 // ── Restore ──────────────────────────────────────────────────
 
-export async function restoreBackup(historyId: number): Promise<void> {
+export async function restoreBackup(historyId: string): Promise<void> {
     if (restoringBackups.has(historyId)) throw new Error("Restore already in progress");
 
-    const history = backupStore.getHistory(historyId);
+    const history = await backupStore.getHistory(historyId);
     if (!history) throw new Error("Backup not found");
 
-    const policy = backupStore.getPolicy(history.policyId);
+    const policy = await backupStore.getPolicy(history.policyId);
     if (!policy) throw new Error("Policy not found");
 
-    const storage = backupStore.getStorage(policy.storageId);
+    const storage = await backupStore.getStorage(policy.storageId);
     if (!storage) throw new Error("Storage not found");
 
     restoringBackups.add(historyId);
     emit({ type: "restore-started", historyId });
 
+    if (policy.mode === "sync") {
+        try {
+            const mountpoint = await getVolumeMountpoint(policy.target);
+            emit({ type: "restore-progress", historyId, phase: "Downloading…" });
+            await withRcloneConfig(storage, async (configPath) => {
+                await rcloneWithProgress(
+                    ["--config", configPath, "copy", `remote:${storage.bucket}/${history.remotePath}/`, mountpoint],
+                    (phase) => emit({ type: "restore-progress", historyId, phase: `Downloading ${phase}` }),
+                );
+            });
+            emit({ type: "restore-finished", historyId, status: "success" });
+        } catch (err) {
+            emit({ type: "restore-finished", historyId, status: "error" });
+            throw err;
+        } finally {
+            restoringBackups.delete(historyId);
+        }
+        return;
+    }
+
     const filename = history.remotePath.split("/").pop()!;
     const tmpPath = join("/tmp", filename);
 
     try {
-        // 1. Download from remote
         emit({ type: "restore-progress", historyId, phase: "Downloading…" });
         await withRcloneConfig(storage, async (configPath) => {
             await rcloneWithProgress(
-                ["--config", configPath, "copy", `remote:${storage.bucket}/${history.remotePath}`, "/tmp/"],
+                ["--config", configPath, "copyto", `remote:${storage.bucket}/${history.remotePath}`, tmpPath],
                 (phase) => emit({ type: "restore-progress", historyId, phase: `Downloading ${phase}` }),
             );
         });
 
-        // 2. Restore based on type
         emit({ type: "restore-progress", historyId, phase: "Restoring…" });
         switch (policy.type) {
             case "raw": {
-                // Decompress .gz → .tar, then import
                 const tarPath = tmpPath.replace(/\.gz$/, "");
                 await execFile("gunzip", ["-k", "-f", tmpPath], { timeout: 0 });
                 await execFile("podman", ["volume", "import", policy.target, tarPath], { timeout: 0 });
@@ -372,7 +659,6 @@ export async function restoreBackup(historyId: number): Promise<void> {
             case "redis":
                 await execFile("podman", ["cp", tmpPath, `${policy.target}:/data/dump.rdb`], { timeout: 60_000 });
                 await execFile("podman", ["exec", policy.target, "redis-cli", "shutdown", "nosave"], { timeout: 10_000 }).catch(() => {});
-                // systemd will restart the container and Redis loads the dump
                 break;
         }
         emit({ type: "restore-finished", historyId, status: "success" });
@@ -396,47 +682,31 @@ async function deleteRemoteFile(storage: Storage, remotePath: string): Promise<v
     });
 }
 
-export async function deleteBackup(historyId: number): Promise<void> {
-    const history = backupStore.getHistory(historyId);
+export async function deleteBackup(historyId: string): Promise<void> {
+    const history = await backupStore.getHistory(historyId);
     if (!history) throw new Error("Backup not found");
 
-    // Only try to delete from remote if backup succeeded (file exists remotely)
     if (history.status === "success") {
-        const policy = backupStore.getPolicy(history.policyId);
-        const storage = policy ? backupStore.getStorage(policy.storageId) : undefined;
+        const policy = await backupStore.getPolicy(history.policyId);
+        const storage = policy ? await backupStore.getStorage(policy.storageId) : undefined;
 
         if (storage && history.remotePath) {
-            await deleteRemoteFile(storage, history.remotePath);
+            await deleteRemoteFile(storage, history.remotePath).catch(() => {});
         }
     }
 
-    backupStore.deleteHistory(historyId);
+    await backupStore.deleteHistory(historyId);
 }
 
-// ── Scheduler ────────────────────────────────────────────────
+/** Regenerate all scripts and rclone configs (e.g. after storage update) */
+export async function regenerateForStorage(storageId: string): Promise<void> {
+    const storage = await backupStore.getStorage(storageId);
+    if (!storage) return;
 
-let schedulerInterval: ReturnType<typeof setInterval> | null = null;
-
-export function startScheduler(): void {
-    if (schedulerInterval) return;
-
-    schedulerInterval = setInterval(async () => {
-        try {
-            const due = backupStore.getDuePolicies().filter((p) => !runningPolicies.has(p.id));
-            for (const policy of due) {
-                await runBackup(policy.id).catch((err) => {
-                    console.error(`[backup] Failed to run policy "${policy.name}":`, err.message);
-                });
-            }
-        } catch (err) {
-            console.error("[backup] Scheduler error:", (err as Error).message);
-        }
-    }, 60_000);
-}
-
-export function stopScheduler(): void {
-    if (schedulerInterval) {
-        clearInterval(schedulerInterval);
-        schedulerInterval = null;
+    await saveRcloneConfig(storage);
+    const policies = await backupStore.listPolicies();
+    const filtered = policies.filter((p) => p.storageId === storageId);
+    for (const policy of filtered) {
+        await writeScript(policy, storage);
     }
 }

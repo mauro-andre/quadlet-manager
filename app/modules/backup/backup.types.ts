@@ -1,7 +1,8 @@
 export type BackupType = "raw" | "mongodb" | "postgresql" | "mysql" | "redis";
+export type BackupMode = "copy" | "sync";
 
 export interface Storage {
-    id: number;
+    id: string;
     name: string;
     endpoint: string;
     bucket: string;
@@ -11,15 +12,16 @@ export interface Storage {
 }
 
 export interface Policy {
-    id: number;
+    id: string;
     name: string;
     type: BackupType;
+    mode: BackupMode;
     target: string;
     credentials: string | null;
     database: string | null;
-    storageId: number;
+    storageId: string;
     storageName?: string;
-    frequency: number;
+    schedule: string;
     retention: number;
     enabled: boolean;
     lastRunAt: string | null;
@@ -27,8 +29,8 @@ export interface Policy {
 }
 
 export interface BackupHistory {
-    id: number;
-    policyId: number;
+    id: string;
+    policyId: string;
     policyName: string;
     timestamp: string;
     size: number;
@@ -37,13 +39,15 @@ export interface BackupHistory {
     remotePath: string;
 }
 
-export const FREQUENCIES = [
-    { label: "Every 30 min", value: 30 },
-    { label: "Every 1 hour", value: 60 },
-    { label: "Every 3 hours", value: 180 },
-    { label: "Every 6 hours", value: 360 },
-    { label: "Every 12 hours", value: 720 },
-    { label: "Every 24 hours", value: 1440 },
+export const SCHEDULES = [
+    { label: "Every 30 min", value: "*-*-* *:00/30:00" },
+    { label: "Every 1 hour", value: "hourly" },
+    { label: "Every 3 hours", value: "*-*-* 00/3:00:00" },
+    { label: "Every 6 hours", value: "*-*-* 00/6:00:00" },
+    { label: "Every 12 hours", value: "*-*-* 00/12:00:00" },
+    { label: "Daily", value: "daily" },
+    { label: "Weekly", value: "weekly" },
+    { label: "Monthly", value: "monthly" },
 ] as const;
 
 export const RETENTIONS = [

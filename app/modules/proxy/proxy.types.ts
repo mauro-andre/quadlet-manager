@@ -10,7 +10,7 @@ export interface ProxyConfig {
 export type TargetType = "container" | "host";
 
 export interface DomainMapping {
-    id: number;
+    id: string;
     domain: string;
     containerName: string;
     containerPort: number;

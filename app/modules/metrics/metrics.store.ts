@@ -1,6 +1,6 @@
-import Database from "better-sqlite3";
+import Datastore, { type Document } from "@seald-io/nedb";
 import { mkdirSync } from "node:fs";
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import type { MetricPoint, TimeRange } from "./metrics.types.js";
 
 type Listener = (containerId: string, point: MetricPoint) => void;
@@ -24,54 +24,48 @@ const RANGE_TO_LAYER: Record<TimeRange, LayerName> = {
     "1y":  "daily",
 };
 
+interface MetricDoc {
+    containerId: string;
+    layer: string;
+    ts: number;
+    cpu: number;
+    mem: number;
+    memLimit: number;
+    netIn: number;
+    netOut: number;
+    blockIn: number;
+    blockOut: number;
+}
+
 export class MetricsStore {
-    private db: Database.Database;
+    private db: Datastore<MetricDoc>;
     private listeners: Listener[] = [];
-    private insertStmt: Database.Statement;
     private lastRollup = 0;
 
     constructor(dataDir?: string) {
-        const dir = dataDir ?? join(process.cwd(), ".data");
+        const dir = dataDir ?? join(process.cwd(), ".data", "metrics");
         mkdirSync(dir, { recursive: true });
 
-        const dbPath = join(dir, "metrics.db");
-        this.db = new Database(dbPath);
+        this.db = new Datastore<MetricDoc>({
+            filename: join(dir, "metrics.db"),
+            autoload: true,
+        });
 
-        this.db.pragma("journal_mode = WAL");
-        this.db.pragma("synchronous = NORMAL");
+        this.db.ensureIndex({ fieldName: "containerId" });
+        this.db.ensureIndex({ fieldName: "layer" });
+        this.db.ensureIndex({ fieldName: "ts" });
 
-        this.createTables();
-        this.insertStmt = this.db.prepare(`
-            INSERT INTO metrics (container_id, layer, ts, cpu, mem, mem_limit, net_in, net_out, block_in, block_out)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `);
-    }
-
-    private createTables(): void {
-        this.db.exec(`
-            CREATE TABLE IF NOT EXISTS metrics (
-                container_id TEXT NOT NULL,
-                layer        TEXT NOT NULL,
-                ts           INTEGER NOT NULL,
-                cpu          REAL NOT NULL,
-                mem          REAL NOT NULL,
-                mem_limit    REAL NOT NULL,
-                net_in       REAL NOT NULL,
-                net_out      REAL NOT NULL,
-                block_in     REAL NOT NULL,
-                block_out    REAL NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_metrics_lookup
-                ON metrics (container_id, layer, ts);
-        `);
+        // Compact every 10 minutes (metrics generates lots of appends)
+        this.db.setAutocompactionInterval(600_000);
     }
 
     push(containerId: string, point: MetricPoint): void {
-        this.insertStmt.run(
-            containerId, "raw", point.ts,
-            point.cpu, point.mem, point.memLimit,
-            point.netIn, point.netOut, point.blockIn, point.blockOut,
-        );
+        this.db.insertAsync({
+            containerId, layer: "raw", ts: point.ts,
+            cpu: point.cpu, mem: point.mem, memLimit: point.memLimit,
+            netIn: point.netIn, netOut: point.netOut,
+            blockIn: point.blockIn, blockOut: point.blockOut,
+        }).catch(() => {});
 
         // Rollup + prune every 60s
         const now = point.ts;
@@ -86,114 +80,106 @@ export class MetricsStore {
         }
     }
 
-    private rollup(): void {
-        const rollupFn = this.db.transaction(() => {
-            for (let i = 0; i < LAYERS.length - 1; i++) {
-                const source = LAYERS[i]!;
-                const target = LAYERS[i + 1]!;
+    private async rollup(): Promise<void> {
+        for (let i = 0; i < LAYERS.length - 1; i++) {
+            const source = LAYERS[i]!;
+            const target = LAYERS[i + 1]!;
 
-                // Find source rows not yet aggregated into target
-                const rows = this.db.prepare(`
-                    SELECT container_id,
-                           (ts / ?) * ? AS bucket_ts,
-                           AVG(cpu) AS cpu, AVG(mem) AS mem,
-                           MAX(mem_limit) AS mem_limit,
-                           AVG(net_in) AS net_in, AVG(net_out) AS net_out,
-                           AVG(block_in) AS block_in, AVG(block_out) AS block_out,
-                           COUNT(*) AS cnt
-                    FROM metrics
-                    WHERE layer = ?
-                      AND ts > COALESCE(
-                          (SELECT MAX(ts) FROM metrics WHERE layer = ? AND container_id = metrics.container_id),
-                          0
-                      )
-                    GROUP BY container_id, bucket_ts
-                    HAVING cnt >= ?
-                `).all(
-                    target.interval, target.interval,
-                    source.name,
-                    target.name,
-                    Math.floor(target.interval / source.interval * 0.8), // 80% threshold
-                ) as Array<{
-                    container_id: string; bucket_ts: number;
-                    cpu: number; mem: number; mem_limit: number;
-                    net_in: number; net_out: number; block_in: number; block_out: number;
-                }>;
-
-                for (const r of rows) {
-                    this.insertStmt.run(
-                        r.container_id, target.name, r.bucket_ts,
-                        r.cpu, r.mem, r.mem_limit,
-                        r.net_in, r.net_out, r.block_in, r.block_out,
-                    );
-                }
+            // Get the latest timestamp in the target layer per container
+            const targetDocs = await this.db.findAsync({ layer: target.name }) as unknown as Document<MetricDoc>[];
+            const latestByContainer = new Map<string, number>();
+            for (const doc of targetDocs) {
+                const cur = latestByContainer.get(doc.containerId) ?? 0;
+                if (doc.ts > cur) latestByContainer.set(doc.containerId, doc.ts);
             }
-        });
 
-        rollupFn();
+            // Get source rows newer than latest target
+            const sourceDocs = await this.db.findAsync({ layer: source.name }) as unknown as Document<MetricDoc>[];
+
+            // Group by container + bucket
+            const buckets = new Map<string, MetricDoc[]>();
+            for (const doc of sourceDocs) {
+                const latest = latestByContainer.get(doc.containerId) ?? 0;
+                if (doc.ts <= latest) continue;
+
+                const bucketTs = Math.floor(doc.ts / target.interval) * target.interval;
+                const key = `${doc.containerId}:${bucketTs}`;
+                const list = buckets.get(key) ?? [];
+                list.push(doc);
+                buckets.set(key, list);
+            }
+
+            const threshold = Math.floor(target.interval / source.interval * 0.8);
+
+            for (const [key, docs] of buckets) {
+                if (docs.length < threshold) continue;
+                const [containerId, bucketTsStr] = key.split(":");
+                const bucketTs = Number(bucketTsStr);
+
+                const avg = (fn: (d: MetricDoc) => number) =>
+                    docs.reduce((sum, d) => sum + fn(d), 0) / docs.length;
+                const max = (fn: (d: MetricDoc) => number) =>
+                    docs.reduce((m, d) => Math.max(m, fn(d)), 0);
+
+                await this.db.insertAsync({
+                    containerId: containerId!,
+                    layer: target.name,
+                    ts: bucketTs,
+                    cpu: avg((d) => d.cpu),
+                    mem: avg((d) => d.mem),
+                    memLimit: max((d) => d.memLimit),
+                    netIn: avg((d) => d.netIn),
+                    netOut: avg((d) => d.netOut),
+                    blockIn: avg((d) => d.blockIn),
+                    blockOut: avg((d) => d.blockOut),
+                });
+            }
+        }
     }
 
-    private prune(now: number): void {
-        const stmt = this.db.prepare(
-            `DELETE FROM metrics WHERE layer = ? AND ts < ?`
-        );
-
-        const pruneFn = this.db.transaction(() => {
-            for (const layer of LAYERS) {
-                stmt.run(layer.name, now - layer.retention);
-            }
-        });
-
-        pruneFn();
+    private async prune(now: number): Promise<void> {
+        for (const layer of LAYERS) {
+            await this.db.removeAsync(
+                { layer: layer.name, ts: { $lt: now - layer.retention } },
+                { multi: true },
+            );
+        }
     }
 
-    query(containerId: string, range: TimeRange): MetricPoint[] {
+    async query(containerId: string, range: TimeRange): Promise<MetricPoint[]> {
         const layer = RANGE_TO_LAYER[range];
         const retention = LAYERS.find((l) => l.name === layer)!.retention;
         const since = Math.floor(Date.now() / 1000) - retention;
 
-        const rows = this.db.prepare(`
-            SELECT ts, cpu, mem, mem_limit, net_in, net_out, block_in, block_out
-            FROM metrics
-            WHERE container_id = ? OR container_id LIKE ?
-            AND layer = ?
-            AND ts > ?
-            ORDER BY ts ASC
-        `).all(containerId, `${containerId}%`, layer, since) as Array<{
-            ts: number; cpu: number; mem: number; mem_limit: number;
-            net_in: number; net_out: number; block_in: number; block_out: number;
-        }>;
+        const docs = await this.db.findAsync({
+            $or: [
+                { containerId },
+                { containerId: { $regex: new RegExp(`^${containerId}`) } },
+            ],
+            layer,
+            ts: { $gt: since },
+        }).sort({ ts: 1 }) as unknown as Document<MetricDoc>[];
 
-        return rows.map((r) => ({
-            ts: r.ts,
-            cpu: r.cpu,
-            mem: r.mem,
-            memLimit: r.mem_limit,
-            netIn: r.net_in,
-            netOut: r.net_out,
-            blockIn: r.block_in,
-            blockOut: r.block_out,
+        return docs.map((d) => ({
+            ts: d.ts, cpu: d.cpu, mem: d.mem, memLimit: d.memLimit,
+            netIn: d.netIn, netOut: d.netOut, blockIn: d.blockIn, blockOut: d.blockOut,
         }));
     }
 
-    /** Latest raw point per container */
     latestAll(): Record<string, MetricPoint> {
-        const rows = this.db.prepare(`
-            SELECT container_id, ts, cpu, mem, mem_limit, net_in, net_out, block_in, block_out
-            FROM metrics m1
-            WHERE layer = 'raw'
-              AND ts = (SELECT MAX(ts) FROM metrics m2 WHERE m2.container_id = m1.container_id AND m2.layer = 'raw')
-        `).all() as Array<{
-            container_id: string; ts: number; cpu: number; mem: number; mem_limit: number;
-            net_in: number; net_out: number; block_in: number; block_out: number;
-        }>;
+        // Use synchronous getAllData for real-time dashboard
+        const allDocs = this.db.getAllData() as unknown as Document<MetricDoc>[];
+        const rawDocs = allDocs.filter((d) => d.layer === "raw");
 
         const result: Record<string, MetricPoint> = {};
-        for (const r of rows) {
-            result[r.container_id] = {
-                ts: r.ts, cpu: r.cpu, mem: r.mem, memLimit: r.mem_limit,
-                netIn: r.net_in, netOut: r.net_out, blockIn: r.block_in, blockOut: r.block_out,
-            };
+        for (const d of rawDocs) {
+            const existing = result[d.containerId];
+            if (!existing || d.ts > existing.ts) {
+                result[d.containerId] = {
+                    ts: d.ts, cpu: d.cpu, mem: d.mem, memLimit: d.memLimit,
+                    netIn: d.netIn, netOut: d.netOut, blockIn: d.blockIn, blockOut: d.blockOut,
+                };
+            }
         }
         return result;
     }
@@ -205,29 +191,20 @@ export class MetricsStore {
         };
     }
 
-    /** Remove metrics for containers that no longer exist */
-    purgeContainers(activeIds: Set<string>): number {
-        const storedIds = this.db.prepare(
-            `SELECT DISTINCT container_id FROM metrics`
-        ).pluck().all() as string[];
+    async purgeContainers(activeIds: Set<string>): Promise<number> {
+        const allDocs = this.db.getAllData() as unknown as Document<MetricDoc>[];
+        const storedIds = new Set(allDocs.map((d) => d.containerId));
 
-        const toDelete = storedIds.filter((id) => !activeIds.has(id));
+        const toDelete = [...storedIds].filter((id) => !activeIds.has(id));
         if (toDelete.length === 0) return 0;
 
-        const deleteFn = this.db.transaction(() => {
-            const stmt = this.db.prepare(
-                `DELETE FROM metrics WHERE container_id = ?`
-            );
-            for (const id of toDelete) {
-                stmt.run(id);
-            }
-        });
-
-        deleteFn();
+        for (const id of toDelete) {
+            await this.db.removeAsync({ containerId: id }, { multi: true });
+        }
         return toDelete.length;
     }
 
     close(): void {
-        this.db.close();
+        this.db.stopAutocompaction();
     }
 }

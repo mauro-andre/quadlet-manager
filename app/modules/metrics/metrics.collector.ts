@@ -73,7 +73,7 @@ export function startCollector(store: MetricsStore): void {
             if (now - lastPurge >= PURGE_INTERVAL) {
                 const allContainers = await listContainers();
                 const activeIds = new Set(allContainers.map((c) => c.Id));
-                const removed = store.purgeContainers(activeIds);
+                const removed = await store.purgeContainers(activeIds);
                 if (removed > 0) {
                     console.log(`Purged metrics for ${removed} removed containers`);
                 }

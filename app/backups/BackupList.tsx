@@ -3,9 +3,9 @@ import { useSignal, useComputed } from "@preact/signals";
 import { useEffect } from "preact/hooks";
 import { useLoader } from "velojs/hooks";
 import type {
-    Storage, Policy, BackupHistory, BackupType,
+    Storage, Policy, BackupHistory, BackupType, BackupMode,
 } from "../modules/backup/backup.types.js";
-import { FREQUENCIES, RETENTIONS, BACKUP_TYPES } from "../modules/backup/backup.types.js";
+import { SCHEDULES, RETENTIONS, BACKUP_TYPES } from "../modules/backup/backup.types.js";
 import { ActionButton } from "../components/ActionButton.js";
 import { toast } from "../components/toast.js";
 import { confirm } from "../components/confirm.js";
@@ -17,10 +17,10 @@ interface BackupListData {
     hasRclone: boolean;
     storages: Storage[];
     policies: Policy[];
-    historyByPolicy: Record<number, BackupHistory[]>;
+    historyByPolicy: Record<string, BackupHistory[]>;
     volumes: string[];
     containers: string[];
-    runningPolicies: number[];
+    runningPolicies: string[];
 }
 
 // ── Loader ───────────────────────────────────────────────────
@@ -41,15 +41,15 @@ export const loader = async () => {
         .map((c) => c.Names?.[0] ?? "")
         .filter(Boolean);
 
-    const policies = backupStore.listPolicies();
-    const historyByPolicy: Record<number, BackupHistory[]> = {};
+    const policies = await backupStore.listPolicies();
+    const historyByPolicy: Record<string, BackupHistory[]> = {};
     for (const p of policies) {
-        historyByPolicy[p.id] = backupStore.listHistoryByPolicy(p.id);
+        historyByPolicy[p.id] = await backupStore.listHistoryByPolicy(p.id);
     }
 
     return {
         hasRclone,
-        storages: backupStore.listStorages(),
+        storages: await backupStore.listStorages(),
         policies,
         historyByPolicy,
         volumes,
@@ -64,21 +64,25 @@ export const action_addStorage = async ({
     body,
 }: ActionArgs<{ name: string; endpoint: string; bucket: string; region: string; accessKey: string; secretKey: string }>) => {
     const { backupStore } = await import("../modules/backup/backup.store.js");
-    backupStore.addStorage(body.name, body.endpoint, body.bucket, body.region, body.accessKey, body.secretKey);
+    await backupStore.addStorage(body.name, body.endpoint, body.bucket, body.region, body.accessKey, body.secretKey);
     return { ok: true };
 };
 
 export const action_updateStorage = async ({
     body,
-}: ActionArgs<{ id: number; name: string; endpoint: string; bucket: string; region: string; accessKey: string; secretKey: string }>) => {
+}: ActionArgs<{ id: string; name: string; endpoint: string; bucket: string; region: string; accessKey: string; secretKey: string }>) => {
     const { backupStore } = await import("../modules/backup/backup.store.js");
-    backupStore.updateStorage(body.id, body.name, body.endpoint, body.bucket, body.region, body.accessKey, body.secretKey);
+    await backupStore.updateStorage(body.id, body.name, body.endpoint, body.bucket, body.region, body.accessKey, body.secretKey);
+    const { regenerateForStorage } = await import("../modules/backup/backup.service.js");
+    await regenerateForStorage(body.id);
     return { ok: true };
 };
 
-export const action_deleteStorage = async ({ body }: ActionArgs<{ id: number }>) => {
+export const action_deleteStorage = async ({ body }: ActionArgs<{ id: string }>) => {
     const { backupStore } = await import("../modules/backup/backup.store.js");
-    backupStore.deleteStorage(body.id);
+    const { deleteRcloneConfig } = await import("../modules/backup/backup.service.js");
+    await deleteRcloneConfig(body.id);
+    await backupStore.deleteStorage(body.id);
     return { ok: true };
 };
 
@@ -87,7 +91,7 @@ export const action_testStorage = async ({
 }: ActionArgs<{ endpoint: string; bucket: string; region: string; accessKey: string; secretKey: string }>) => {
     const { testConnection } = await import("../modules/backup/backup.service.js");
     return await testConnection({
-        id: 0, name: "", endpoint: body.endpoint, bucket: body.bucket,
+        id: "", name: "", endpoint: body.endpoint, bucket: body.bucket,
         region: body.region, accessKey: body.accessKey, secretKey: body.secretKey,
     });
 };
@@ -95,14 +99,14 @@ export const action_testStorage = async ({
 export const action_addPolicy = async ({
     body,
 }: ActionArgs<{
-    name: string; type: BackupType; target: string; credentials: string;
-    database: string; storageId: number; frequency: number; retention: number;
+    name: string; type: BackupType; mode: BackupMode; target: string; credentials: string;
+    database: string; storageId: string; schedule: string; retention: number;
 }>) => {
-    const { backupStore } = await import("../modules/backup/backup.store.js");
-    backupStore.addPolicy(
-        body.name, body.type, body.target,
+    const { createPolicy } = await import("../modules/backup/backup.service.js");
+    await createPolicy(
+        body.name, body.type, body.mode, body.target,
         body.credentials || null, body.database || null,
-        body.storageId, body.frequency, body.retention,
+        body.storageId, body.schedule, body.retention,
     );
     return { ok: true };
 };
@@ -110,50 +114,48 @@ export const action_addPolicy = async ({
 export const action_updatePolicy = async ({
     body,
 }: ActionArgs<{
-    id: number; name: string; type: BackupType; target: string; credentials: string;
-    database: string; storageId: number; frequency: number; retention: number;
+    id: string; name: string; type: BackupType; mode: BackupMode; target: string; credentials: string;
+    database: string; storageId: string; schedule: string; retention: number;
 }>) => {
-    const { backupStore } = await import("../modules/backup/backup.store.js");
-    backupStore.updatePolicy(
-        body.id, body.name, body.type, body.target,
+    const { updatePolicy } = await import("../modules/backup/backup.service.js");
+    await updatePolicy(
+        body.id, body.name, body.type, body.mode, body.target,
         body.credentials || null, body.database || null,
-        body.storageId, body.frequency, body.retention,
+        body.storageId, body.schedule, body.retention,
     );
     return { ok: true };
 };
 
-export const action_deletePolicy = async ({ body }: ActionArgs<{ id: number }>) => {
-    const { backupStore } = await import("../modules/backup/backup.store.js");
-    backupStore.deletePolicy(body.id);
+export const action_deletePolicy = async ({ body }: ActionArgs<{ id: string }>) => {
+    const { deletePolicy } = await import("../modules/backup/backup.service.js");
+    await deletePolicy(body.id);
     return { ok: true };
 };
 
-export const action_togglePolicy = async ({ body }: ActionArgs<{ id: number; enabled: boolean }>) => {
-    const { backupStore } = await import("../modules/backup/backup.store.js");
-    backupStore.togglePolicy(body.id, body.enabled);
+export const action_togglePolicy = async ({ body }: ActionArgs<{ id: string; enabled: boolean }>) => {
+    const { togglePolicy } = await import("../modules/backup/backup.service.js");
+    await togglePolicy(body.id, body.enabled);
     return { ok: true };
 };
 
-export const action_runNow = async ({ body }: ActionArgs<{ id: number }>) => {
+export const action_runNow = async ({ body }: ActionArgs<{ id: string }>) => {
     const { runBackup, isRunning } = await import("../modules/backup/backup.service.js");
     if (isRunning(body.id)) return { error: "Backup already running" };
-    // Fire-and-forget — backup runs in background
     runBackup(body.id).catch((err) => {
         console.error(`[backup] Policy ${body.id} failed:`, err.message);
     });
     return { ok: true };
 };
 
-export const action_restore = async ({ body }: ActionArgs<{ id: number }>) => {
+export const action_restore = async ({ body }: ActionArgs<{ id: string }>) => {
     const { restoreBackup } = await import("../modules/backup/backup.service.js");
-    // Fire-and-forget — restore runs in background
     restoreBackup(body.id).catch((err) => {
         console.error(`[backup] Restore ${body.id} failed:`, err.message);
     });
     return { ok: true };
 };
 
-export const action_deleteBackup = async ({ body }: ActionArgs<{ id: number }>) => {
+export const action_deleteBackup = async ({ body }: ActionArgs<{ id: string }>) => {
     const { deleteBackup } = await import("../modules/backup/backup.service.js");
     await deleteBackup(body.id);
     return { ok: true };
@@ -168,27 +170,17 @@ function formatSize(bytes: number): string {
     return `${(bytes / Math.pow(1024, i)).toFixed(1)} ${units[i]}`;
 }
 
-function formatFrequency(minutes: number): string {
-    return FREQUENCIES.find((f) => f.value === minutes)?.label ?? `${minutes}min`;
+function formatSchedule(schedule: string): string {
+    return SCHEDULES.find((s) => s.value === schedule)?.label ?? schedule;
 }
 
 function formatDate(iso: string): string {
     return new Date(iso).toLocaleString();
 }
 
-function formatNextRun(lastRunAt: string | null, frequencyMin: number, enabled: boolean): string {
+function formatTimerStatus(enabled: boolean): string {
     if (!enabled) return "Disabled";
-    if (!lastRunAt) return "Pending";
-    const next = new Date(lastRunAt).getTime() + frequencyMin * 60_000;
-    const diff = next - Date.now();
-    if (diff <= 0) return "Due now";
-    const mins = Math.ceil(diff / 60_000);
-    if (mins < 60) return `in ${mins}m`;
-    const hours = Math.floor(mins / 60);
-    const remainMins = mins % 60;
-    if (hours < 24) return remainMins > 0 ? `in ${hours}h ${remainMins}m` : `in ${hours}h`;
-    const days = Math.floor(hours / 24);
-    return `in ${days}d ${hours % 24}h`;
+    return "Active (systemd timer)";
 }
 
 function run(action: Promise<unknown>, msg: string, refetch: () => void) {
@@ -225,26 +217,27 @@ export const Component = () => {
     const editingPolicy = useSignal<Policy | null>(null);
     const pName = useSignal("");
     const pType = useSignal<BackupType>("mongodb");
+    const pMode = useSignal<BackupMode>("copy");
     const pTarget = useSignal("");
     const pCredentials = useSignal("");
     const pDatabase = useSignal("");
-    const pStorageId = useSignal(0);
-    const pFrequency = useSignal(60);
+    const pStorageId = useSignal("");
+    const pSchedule = useSignal("daily");
     const pRetention = useSignal(24);
 
     const submitting = useSignal(false);
 
     // SSE: track running backups and restores with phase info
-    const runningMap = useSignal<Map<number, string>>(new Map((data.value?.runningPolicies ?? []).map((id: number) => [id, "Running…"])));
-    const restoringMap = useSignal<Map<number, string>>(new Map());
+    const runningMap = useSignal<Map<string, string>>(new Map((data.value?.runningPolicies ?? []).map((id) => [id, "Running…"])));
+    const restoringMap = useSignal<Map<string, string>>(new Map());
 
     useEffect(() => {
         const es = new EventSource("/api/backups/events");
 
         es.addEventListener("snapshot", (e) => {
             const { running, restoring } = JSON.parse(e.data);
-            runningMap.value = new Map(running.map((id: number) => [id, "Running…"]));
-            restoringMap.value = new Map(restoring.map((id: number) => [id, "Restoring…"]));
+            runningMap.value = new Map(running.map((id: string) => [id, "Running…"]));
+            restoringMap.value = new Map(restoring.map((id: string) => [id, "Restoring…"]));
         });
 
         es.addEventListener("started", (e) => {
@@ -304,7 +297,7 @@ export const Component = () => {
     const containers = data.value?.containers ?? [];
 
     // Track which policies have expanded history
-    const expandedPolicies = useSignal<Set<number>>(new Set());
+    const expandedPolicies = useSignal<Set<string>>(new Set());
 
     // ── No rclone ────────────────────────────────────────────
 
@@ -403,11 +396,12 @@ export const Component = () => {
         editingPolicy.value = null;
         pName.value = "";
         pType.value = "mongodb";
+        pMode.value = "copy";
         pTarget.value = "";
         pCredentials.value = "";
         pDatabase.value = "";
-        pStorageId.value = storages[0]?.id ?? 0;
-        pFrequency.value = 60;
+        pStorageId.value = storages[0]?.id ?? "";
+        pSchedule.value = "daily";
         pRetention.value = 24;
         submitting.value = false;
     };
@@ -421,11 +415,12 @@ export const Component = () => {
         editingPolicy.value = p;
         pName.value = p.name;
         pType.value = p.type;
+        pMode.value = p.mode;
         pTarget.value = p.target;
         pCredentials.value = p.credentials ?? "";
         pDatabase.value = p.database ?? "";
         pStorageId.value = p.storageId;
-        pFrequency.value = p.frequency;
+        pSchedule.value = p.schedule;
         pRetention.value = p.retention;
         showPolicyForm.value = true;
     };
@@ -437,10 +432,10 @@ export const Component = () => {
         }
         submitting.value = true;
         const body = {
-            name: pName.value.trim(), type: pType.value, target: pTarget.value.trim(),
+            name: pName.value.trim(), type: pType.value, mode: pMode.value, target: pTarget.value.trim(),
             credentials: pCredentials.value, database: pDatabase.value,
             storageId: pStorageId.value,
-            frequency: pFrequency.value, retention: pRetention.value,
+            schedule: pSchedule.value, retention: pRetention.value,
         };
         if (editingPolicy.value) {
             run(action_updatePolicy({ body: { id: editingPolicy.value.id, ...body } }), "Policy updated", refetch);
@@ -451,6 +446,7 @@ export const Component = () => {
     };
 
     const isDbType = pType.value !== "raw";
+    const isSync = pType.value === "raw" && pMode.value === "sync";
     const targetOptions = isDbType ? containers : volumes;
 
     // ── No storages → setup ──────────────────────────────────
@@ -593,12 +589,23 @@ export const Component = () => {
                                     onChange={(e) => {
                                         pType.value = (e.target as HTMLSelectElement).value as BackupType;
                                         pTarget.value = "";
+                                        if (pType.value !== "raw") pMode.value = "copy";
                                     }}>
                                     {BACKUP_TYPES.map((t) => (
                                         <option key={t.value} value={t.value}>{t.label}</option>
                                     ))}
                                 </select>
                             </div>
+                            {pType.value === "raw" && (
+                                <div class={css.inlineFormField}>
+                                    <div class={css.inlineFormLabel}>Mode</div>
+                                    <select class={css.select} value={pMode.value}
+                                        onChange={(e) => { pMode.value = (e.target as HTMLSelectElement).value as BackupMode; }}>
+                                        <option value="copy">Copy (compress + upload)</option>
+                                        <option value="sync">Sync (rclone sync)</option>
+                                    </select>
+                                </div>
+                            )}
                             <div class={css.inlineFormField}>
                                 <div class={css.inlineFormLabel}>{isDbType ? "Container" : "Volume"}</div>
                                 <select class={css.select} value={pTarget.value}
@@ -626,27 +633,29 @@ export const Component = () => {
                                 </div>
                             )}
                             <div class={css.inlineFormField}>
-                                <div class={css.inlineFormLabel}>Frequency</div>
-                                <select class={css.select} value={pFrequency.value}
-                                    onChange={(e) => { pFrequency.value = Number((e.target as HTMLSelectElement).value); }}>
-                                    {FREQUENCIES.map((f) => (
-                                        <option key={f.value} value={f.value}>{f.label}</option>
+                                <div class={css.inlineFormLabel}>Schedule</div>
+                                <select class={css.select} value={pSchedule.value}
+                                    onChange={(e) => { pSchedule.value = (e.target as HTMLSelectElement).value; }}>
+                                    {SCHEDULES.map((s) => (
+                                        <option key={s.value} value={s.value}>{s.label}</option>
                                     ))}
                                 </select>
                             </div>
-                            <div class={css.inlineFormField}>
-                                <div class={css.inlineFormLabel}>Retention</div>
-                                <select class={css.select} value={pRetention.value}
-                                    onChange={(e) => { pRetention.value = Number((e.target as HTMLSelectElement).value); }}>
-                                    {RETENTIONS.map((r) => (
-                                        <option key={r.value} value={r.value}>{r.label}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            {!isSync && (
+                                <div class={css.inlineFormField}>
+                                    <div class={css.inlineFormLabel}>Retention</div>
+                                    <select class={css.select} value={pRetention.value}
+                                        onChange={(e) => { pRetention.value = Number((e.target as HTMLSelectElement).value); }}>
+                                        {RETENTIONS.map((r) => (
+                                            <option key={r.value} value={r.value}>{r.label}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
                             <div class={css.inlineFormField}>
                                 <div class={css.inlineFormLabel}>Destination</div>
                                 <select class={css.select} value={pStorageId.value}
-                                    onChange={(e) => { pStorageId.value = Number((e.target as HTMLSelectElement).value); }}>
+                                    onChange={(e) => { pStorageId.value = (e.target as HTMLSelectElement).value; }}>
                                     {storages.map((s) => (
                                         <option key={s.id} value={s.id}>{s.name}</option>
                                     ))}
@@ -686,9 +695,19 @@ export const Component = () => {
                                             {BACKUP_TYPES.find((t) => t.value === p.type)?.label} · {p.target} · {p.storageName}
                                         </div>
                                         <div class={css.cardMeta}>
-                                            <span>{formatFrequency(p.frequency)}</span>
-                                            <span>·</span>
-                                            <span>Keep {p.retention}</span>
+                                            <span>{formatSchedule(p.schedule)}</span>
+                                            {p.mode === "sync" && (
+                                                <>
+                                                    <span>·</span>
+                                                    <span>Sync</span>
+                                                </>
+                                            )}
+                                            {p.mode === "copy" && (
+                                                <>
+                                                    <span>·</span>
+                                                    <span>Keep {p.retention}</span>
+                                                </>
+                                            )}
                                             {p.lastRunAt && (
                                                 <>
                                                     <span>·</span>
@@ -701,7 +720,7 @@ export const Component = () => {
                                                 </>
                                             )}
                                             <span>·</span>
-                                            <span>Next: {formatNextRun(p.lastRunAt, p.frequency, p.enabled)}</span>
+                                            <span>{formatTimerStatus(p.enabled)}</span>
                                         </div>
                                     </div>
                                     <div class={css.actionsCell}>

@@ -167,11 +167,11 @@ export async function enableProxy(
         await writeProxyFile(keyPath, keyContent);
     }
 
-    proxyStore.upsertConfig(sslMode, certPath, keyPath);
-    proxyStore.setEnabled(true);
+    await proxyStore.upsertConfig(sslMode, certPath, keyPath);
+    await proxyStore.setEnabled(true);
 
-    const config = proxyStore.getConfig();
-    const domains = proxyStore.listDomains();
+    const config = await proxyStore.getConfig();
+    const domains = await proxyStore.listDomains();
     const caddyfileContent = generateCaddyfile(domains, config);
     await writeProxyFile(join(dataDir, "Caddyfile"), caddyfileContent);
 
@@ -217,7 +217,7 @@ export async function disableProxy(user: AuthUser): Promise<void> {
         await deleteQuadlet(filename, user).catch(() => {});
     }
 
-    proxyStore.setEnabled(false);
+    await proxyStore.setEnabled(false);
 }
 
 // ── Caddyfile regeneration ────────────────────────────────────
@@ -226,8 +226,8 @@ export async function regenerateCaddyfile(): Promise<void> {
     const { proxyStore } = await import("./proxy.store.js");
     const { restartService } = await import("../systemd/systemd.service.js");
 
-    const config = proxyStore.getConfig();
-    const domains = proxyStore.listDomains();
+    const config = await proxyStore.getConfig();
+    const domains = await proxyStore.listDomains();
     const dataDir = getDataDir();
 
     const caddyfileContent = generateCaddyfile(domains, config);
@@ -247,8 +247,8 @@ export async function getProxyStatus(): Promise<{
     const { proxyStore } = await import("./proxy.store.js");
     const { getServiceStatus } = await import("../systemd/systemd.service.js");
 
-    const config = proxyStore.getConfig();
-    const domains = proxyStore.listDomains();
+    const config = await proxyStore.getConfig();
+    const domains = await proxyStore.listDomains();
 
     let serviceStatus = "inactive";
     if (config.enabled) {
