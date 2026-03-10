@@ -23,20 +23,33 @@ No existing tool covers this gap — Portainer doesn't support Quadlets, Cockpit
 
 ## Requirements
 
-- **Linux** with **systemd**
-- **Node.js** 20+
-- **Podman** installed and running
-- **Python 3** (for PAM authentication and terminal PTY)
+- **Linux** with **systemd** (RHEL/Fedora, Debian/Ubuntu, Arch)
 
-Optional (installed automatically if missing):
-- **skopeo** — for image update checks
-- **rclone** — for backups
+All dependencies are installed automatically by the setup script:
+- Node.js 22, Podman, Python 3, skopeo, rclone
 
 ## Installation
 
-Run as your regular user (not root):
+### First-time server setup
+
+Run as root or a user with sudo. This interactive script installs system dependencies, creates a user, and prepares the server:
 
 ```bash
+curl -fsSL https://github.com/mauro-andre/quadlet-manager/releases/latest/download/setup.sh | bash
+```
+
+The setup will:
+1. Let you select an existing user or create a new one (without sudo)
+2. Install Node.js 22, Podman, Python 3 if missing (RHEL/Fedora, Debian/Ubuntu, Arch)
+3. Install skopeo and rclone if missing
+4. Enable user linger and persistent journal
+
+### Install Quadlet Manager
+
+After setup, switch to your user and run the installer (no sudo required):
+
+```bash
+su - your-user
 curl -fsSL https://github.com/mauro-andre/quadlet-manager/releases/latest/download/install.sh | bash
 ```
 
@@ -44,8 +57,7 @@ This will:
 1. Download the latest release from GitHub
 2. Install to `~/.local/share/quadlet-manager`
 3. Generate a JWT secret (saved in `~/.local/share/quadlet-manager/.env`)
-4. Enable user linger for persistent services
-5. Create and start a systemd user service
+4. Create and start a systemd user service
 
 After installation:
 ```bash
@@ -60,7 +72,7 @@ Access the UI at `http://your-server:3000` and login with your Linux user creden
 
 ## Updating
 
-Re-run the install script — it will download the latest version and preserve your data:
+Re-run the install script as your user — no sudo required:
 
 ```bash
 curl -fsSL https://github.com/mauro-andre/quadlet-manager/releases/latest/download/install.sh | bash

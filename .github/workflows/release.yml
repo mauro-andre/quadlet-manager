@@ -39,4 +39,5 @@ jobs:
 
           gh release upload "${GITHUB_REF_NAME}" \
             "/tmp/quadlet-manager-${VERSION}-linux-x64.tar.gz" \
-            install.sh
+            install.sh \
+            setup.sh

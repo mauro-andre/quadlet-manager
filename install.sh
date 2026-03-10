@@ -23,50 +23,15 @@ error() { echo -e "${RED}[ERROR]${NC} $*"; exit 1; }
 
 # --- Checks ---
 
-[[ $EUID -ne 0 ]] || error "Do not run this script as root. Run as the user that will manage Podman containers."
+[[ $EUID -ne 0 ]] || error "Do not run as root. Run as the user that will manage Podman containers. See setup.sh for first-time server setup."
 
-command -v node >/dev/null 2>&1 || error "Node.js is not installed. Install Node.js 20+ first: https://nodejs.org"
+command -v node >/dev/null 2>&1 || error "Node.js is not installed. Run setup.sh first or install Node.js 20+: https://nodejs.org"
 NODE_MAJOR=$(node -v | sed 's/v//' | cut -d. -f1)
 [[ $NODE_MAJOR -ge 20 ]] || error "Node.js 20+ is required (found $(node -v))"
 
-command -v podman >/dev/null 2>&1 || error "Podman is not installed"
+command -v podman >/dev/null 2>&1 || error "Podman is not installed. Run setup.sh first."
 command -v systemctl >/dev/null 2>&1 || error "systemctl is not available"
-command -v python3 >/dev/null 2>&1 || error "Python 3 is not installed (required for terminal PTY)"
-
-# --- Install optional dependencies ---
-
-if ! command -v skopeo >/dev/null 2>&1; then
-    info "Installing skopeo (required for image update checks)..."
-    if command -v dnf >/dev/null 2>&1; then
-        sudo dnf install -y skopeo >/dev/null 2>&1 || warn "Failed to install skopeo. Image update checks will not be available."
-    elif command -v apt-get >/dev/null 2>&1; then
-        sudo apt-get install -y skopeo >/dev/null 2>&1 || warn "Failed to install skopeo. Image update checks will not be available."
-    else
-        warn "Could not install skopeo — unsupported package manager. Image update checks will not be available."
-    fi
-fi
-
-if ! command -v rclone >/dev/null 2>&1; then
-    info "Installing rclone (required for backups)..."
-    command -v unzip >/dev/null 2>&1 || warn "unzip is not installed — rclone installation may fail"
-    curl -fsSL https://rclone.org/install.sh | sudo bash >/dev/null 2>&1 || warn "Failed to install rclone. Backups will not be available."
-fi
-
-# --- Enable linger ---
-
-info "Enabling lingering for user $(whoami)..."
-loginctl enable-linger "$(whoami)" 2>/dev/null || {
-    warn "Could not enable linger. Trying with sudo..."
-    sudo loginctl enable-linger "$(whoami)" || warn "Failed to enable linger. User services may not survive logout."
-}
-
-# --- Ensure persistent journal ---
-
-if [[ ! -d /var/log/journal ]]; then
-    info "Enabling persistent journal storage..."
-    sudo mkdir -p /var/log/journal
-    sudo journalctl --flush 2>/dev/null || true
-fi
+command -v python3 >/dev/null 2>&1 || error "Python 3 is not installed. Run setup.sh first."
 
 # --- Download ---
 
