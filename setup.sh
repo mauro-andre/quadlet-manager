@@ -34,7 +34,7 @@ else
     fi
     echo -e "  This script requires elevated privileges."
     echo ""
-    if ! sudo true; then
+    if ! sudo true < /dev/tty; then
         error "Failed to obtain sudo access"
     fi
     SUDO="sudo"
@@ -62,7 +62,7 @@ echo -e "    ${BOLD}${NEW_USER_OPT})${NC} Create new user"
 echo ""
 
 while true; do
-    read -rp "  Choose [1-${NEW_USER_OPT}]: " choice
+    read -rp "  Choose [1-${NEW_USER_OPT}]: " choice < /dev/tty
     if [[ "$choice" =~ ^[0-9]+$ ]] && [[ "$choice" -ge 1 ]] && [[ "$choice" -le "$NEW_USER_OPT" ]]; then
         break
     fi
@@ -73,7 +73,7 @@ if [[ "$choice" -eq "$NEW_USER_OPT" ]]; then
     # Create new user
     echo ""
     while true; do
-        read -rp "  New username: " QM_USER
+        read -rp "  New username: " QM_USER < /dev/tty
         if [[ -z "$QM_USER" ]]; then
             echo -e "  ${RED}Username cannot be empty${NC}"
             continue
@@ -93,7 +93,7 @@ if [[ "$choice" -eq "$NEW_USER_OPT" ]]; then
 
     echo ""
     echo -e "  Set password for ${BOLD}${QM_USER}${NC}:"
-    $SUDO passwd "$QM_USER"
+    $SUDO passwd "$QM_USER" < /dev/tty
 
     info "User '${QM_USER}' created"
 else
