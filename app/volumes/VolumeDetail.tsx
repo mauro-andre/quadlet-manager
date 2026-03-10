@@ -24,6 +24,7 @@ interface VolumeDetailData {
     volume: PodmanVolume;
     containers: PodmanContainer[];
     df: PodmanDfVolume | null;
+    bindSize: number | null;
 }
 
 export const loader = async ({ params }: LoaderArgs) => {
@@ -39,7 +40,25 @@ export const loader = async ({ params }: LoaderArgs) => {
 
     const df = diskUsage?.Volumes?.find((v) => v.VolumeName === volume.Name) ?? null;
 
-    return { volume, containers, df } satisfies VolumeDetailData;
+    let bindSize: number | null = null;
+    const isBindMount = volume.Options?.type === "none" && typeof volume.Options?.device === "string";
+    if (isBindMount) {
+        try {
+            const { execFile: execFileCb } = await import("node:child_process");
+            const { promisify } = await import("node:util");
+            const execFile = promisify(execFileCb);
+            const { stdout } = await execFile("du", ["-sb", volume.Options!.device as string]).catch((err: { stdout?: string }) => {
+                // du may exit 1 due to permission errors but still output the total
+                return { stdout: err.stdout ?? "" };
+            });
+            const parsed = parseInt(stdout.split("\t")[0] ?? "0", 10);
+            if (parsed > 0) bindSize = parsed;
+        } catch {
+            bindSize = null;
+        }
+    }
+
+    return { volume, containers, df, bindSize } satisfies VolumeDetailData;
 };
 
 export const action_remove = async ({
@@ -60,8 +79,10 @@ export const Component = () => {
     if (loading.value) return <div>Loading...</div>;
     if (!data.value) return <div>Volume not found</div>;
 
-    const { volume, containers, df } = data.value;
+    const { volume, containers, df, bindSize } = data.value;
     const inUse = containers.length > 0;
+    const isBindMount = volume.Options?.type === "none" && typeof volume.Options?.device === "string";
+    const devicePath = isBindMount ? volume.Options!.device as string : null;
 
     return (
         <div class={css.page}>
@@ -101,14 +122,27 @@ export const Component = () => {
                     <span class={css.infoValue}>{volume.Name}</span>
 
                     <span class={css.infoLabel}>Driver</span>
-                    <span class={css.infoValue}>{volume.Driver}</span>
+                    <span class={css.infoValue}>
+                        {volume.Driver}{isBindMount ? " (bind mount)" : ""}
+                    </span>
 
-                    <span class={css.infoLabel}>Mountpoint</span>
-                    <span class={css.infoValue}>{volume.Mountpoint}</span>
+                    {isBindMount ? (
+                        <>
+                            <span class={css.infoLabel}>Device</span>
+                            <span class={css.infoValue}>{devicePath}</span>
+                        </>
+                    ) : (
+                        <>
+                            <span class={css.infoLabel}>Mountpoint</span>
+                            <span class={css.infoValue}>{volume.Mountpoint}</span>
+                        </>
+                    )}
 
                     <span class={css.infoLabel}>Size</span>
                     <span class={css.infoValue}>
-                        {df ? formatBytes(df.Size) : "-"}
+                        {isBindMount
+                            ? (bindSize != null ? formatBytes(bindSize) : "-")
+                            : (df ? formatBytes(df.Size) : "-")}
                     </span>
 
                     <span class={css.infoLabel}>Scope</span>

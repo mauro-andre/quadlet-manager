@@ -56,6 +56,24 @@ addRoutes((app: Hono) => {
         return c.json({ ok: true });
     });
 
+    // Restore script notify — no auth (called by systemd services on localhost)
+    app.post("/api/backups/restore-notify", async (c) => {
+        const body = await c.req.json<{ historyId?: string; policyId?: string; phase: string }>();
+        if (!body.phase) {
+            return c.json({ error: "Missing phase" }, 400);
+        }
+        if (body.policyId) {
+            const { handleSyncRestoreNotify } = await import("./modules/backup/backup.service.js");
+            handleSyncRestoreNotify(body.policyId, body.phase);
+        } else if (body.historyId) {
+            const { handleRestoreNotify } = await import("./modules/backup/backup.service.js");
+            handleRestoreNotify(body.historyId, body.phase);
+        } else {
+            return c.json({ error: "Missing historyId or policyId" }, 400);
+        }
+        return c.json({ ok: true });
+    });
+
     // Protect all API routes with auth
     app.use("/api/*", authMiddleware);
 
@@ -289,15 +307,16 @@ function registerPullEndpoints(app: Hono) {
     // SSE: backup status events
     app.get("/api/backups/events", async (c) => {
         const { streamSSE } = await import("hono/streaming");
-        const { subscribe, getRunningPolicies, getRestoringBackups } = await import("./modules/backup/backup.service.js");
+        const { subscribe, getRunningPolicies, getRestoringBackups, getRestoringSyncPolicies } = await import("./modules/backup/backup.service.js");
 
         return streamSSE(c, async (stream) => {
             const running = getRunningPolicies();
             const restoring = getRestoringBackups();
-            if (running.length > 0 || restoring.length > 0) {
+            const restoringSync = getRestoringSyncPolicies();
+            if (running.length > 0 || restoring.length > 0 || restoringSync.length > 0) {
                 await stream.writeSSE({
                     event: "snapshot",
-                    data: JSON.stringify({ running, restoring }),
+                    data: JSON.stringify({ running, restoring, restoringSync }),
                 });
             }
 

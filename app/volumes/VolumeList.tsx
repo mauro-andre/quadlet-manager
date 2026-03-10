@@ -29,6 +29,7 @@ function displayName(vol: PodmanVolume): string {
 interface VolumeListData {
     volumes: PodmanVolume[];
     dfMap: Record<string, PodmanDfVolume>;
+    bindSizes: Record<string, number>;
 }
 
 export const loader = async (_: LoaderArgs) => {
@@ -47,7 +48,25 @@ export const loader = async (_: LoaderArgs) => {
         }
     }
 
-    return { volumes, dfMap } satisfies VolumeListData;
+    // Calculate sizes for bind mount volumes
+    const bindSizes: Record<string, number> = {};
+    const bindVolumes = volumes.filter((v) => v.Options?.type === "none" && typeof v.Options?.device === "string");
+    if (bindVolumes.length > 0) {
+        const { execFile: execFileCb } = await import("node:child_process");
+        const { promisify } = await import("node:util");
+        const execFile = promisify(execFileCb);
+        await Promise.all(bindVolumes.map(async (v) => {
+            try {
+                const { stdout } = await execFile("du", ["-sb", v.Options!.device as string]).catch((err: { stdout?: string }) => {
+                    return { stdout: err.stdout ?? "" };
+                });
+                const parsed = parseInt(stdout.split("\t")[0] ?? "0", 10);
+                if (parsed > 0) bindSizes[v.Name] = parsed;
+            } catch { /* ignore */ }
+        }));
+    }
+
+    return { volumes, dfMap, bindSizes } satisfies VolumeListData;
 };
 
 export const action_prune = async () => {
@@ -75,6 +94,7 @@ export const Component = () => {
 
     const volumes = data.value?.volumes ?? [];
     const dfMap = data.value?.dfMap ?? {};
+    const bindSizes = data.value?.bindSizes ?? {};
 
     const run = (action: Promise<unknown>, msg: string) =>
         action
@@ -115,6 +135,8 @@ export const Component = () => {
                             {volumes.map((vol) => {
                                 const df = dfMap[vol.Name];
                                 const inUse = (df?.Links ?? 0) > 0;
+                                const isBind = vol.Options?.type === "none" && typeof vol.Options?.device === "string";
+                                const size = isBind ? bindSizes[vol.Name] : df?.Size;
                                 return (
                                     <tr key={vol.Name}>
                                         <td class={css.td}>
@@ -126,9 +148,9 @@ export const Component = () => {
                                                 {displayName(vol)}
                                             </Link>
                                         </td>
-                                        <td class={css.td}>{vol.Driver}</td>
+                                        <td class={css.td}>{vol.Driver}{isBind ? " (bind)" : ""}</td>
                                         <td class={css.td}>
-                                            {df ? formatBytes(df.Size) : "-"}
+                                            {size != null ? formatBytes(size) : "-"}
                                         </td>
                                         <td class={css.td}>
                                             <span class={`${css.badge} ${inUse ? css.badgeInUse : css.badgeUnused}`}>

@@ -22,13 +22,14 @@ interface BackupListData {
     volumes: string[];
     containers: string[];
     runningPolicies: string[];
+    restoringSyncPolicies: string[];
 }
 
 // ── Loader ───────────────────────────────────────────────────
 
 export const loader = async () => {
     const { backupStore } = await import("../modules/backup/backup.store.js");
-    const { checkRclone, getRunningPolicies, getNextRun } = await import("../modules/backup/backup.service.js");
+    const { checkRclone, getRunningPolicies, getRestoringSyncPolicies, getNextRun } = await import("../modules/backup/backup.service.js");
     const { listVolumes, listContainers } = await import("../modules/podman/podman.client.js");
 
     const [hasRclone, rawVolumes, rawContainers] = await Promise.all([
@@ -59,6 +60,7 @@ export const loader = async () => {
         volumes,
         containers,
         runningPolicies: getRunningPolicies(),
+        restoringSyncPolicies: getRestoringSyncPolicies(),
     } satisfies BackupListData;
 };
 
@@ -159,6 +161,14 @@ export const action_restore = async ({ body }: ActionArgs<{ id: string }>) => {
     return { ok: true };
 };
 
+export const action_restoreSync = async ({ body }: ActionArgs<{ id: string }>) => {
+    const { restoreSyncBackup } = await import("../modules/backup/backup.service.js");
+    restoreSyncBackup(body.id).catch((err) => {
+        console.error(`[backup] Sync restore ${body.id} failed:`, err.message);
+    });
+    return { ok: true };
+};
+
 export const action_deleteBackup = async ({ body }: ActionArgs<{ id: string }>) => {
     const { deleteBackup } = await import("../modules/backup/backup.service.js");
     await deleteBackup(body.id);
@@ -234,14 +244,16 @@ export const Component = () => {
     // SSE: track running backups and restores with phase info
     const runningMap = useSignal<Map<string, string>>(new Map((data.value?.runningPolicies ?? []).map((id) => [id, "Running…"])));
     const restoringMap = useSignal<Map<string, string>>(new Map());
+    const restoringSyncMap = useSignal<Map<string, string>>(new Map((data.value?.restoringSyncPolicies ?? []).map((id) => [id, "Restoring…"])));
 
     useEffect(() => {
         const es = new EventSource("/api/backups/events");
 
         es.addEventListener("snapshot", (e) => {
-            const { running, restoring } = JSON.parse(e.data);
+            const { running, restoring, restoringSync } = JSON.parse(e.data);
             runningMap.value = new Map(running.map((id: string) => [id, "Running…"]));
             restoringMap.value = new Map(restoring.map((id: string) => [id, "Restoring…"]));
+            restoringSyncMap.value = new Map((restoringSync ?? []).map((id: string) => [id, "Restoring…"]));
         });
 
         es.addEventListener("started", (e) => {
@@ -285,6 +297,28 @@ export const Component = () => {
             const next = new Map(restoringMap.value);
             next.delete(historyId);
             restoringMap.value = next;
+            toast(status === "success" ? "Restore completed" : "Restore failed", status === "success" ? "success" : "error");
+        });
+
+        es.addEventListener("sync-restore-started", (e) => {
+            const { policyId } = JSON.parse(e.data);
+            const next = new Map(restoringSyncMap.value);
+            next.set(policyId, "Starting…");
+            restoringSyncMap.value = next;
+        });
+
+        es.addEventListener("sync-restore-progress", (e) => {
+            const { policyId, phase } = JSON.parse(e.data);
+            const next = new Map(restoringSyncMap.value);
+            next.set(policyId, phase);
+            restoringSyncMap.value = next;
+        });
+
+        es.addEventListener("sync-restore-finished", (e) => {
+            const { policyId, status } = JSON.parse(e.data);
+            const next = new Map(restoringSyncMap.value);
+            next.delete(policyId);
+            restoringSyncMap.value = next;
             toast(status === "success" ? "Restore completed" : "Restore failed", status === "success" ? "success" : "error");
         });
 
@@ -705,6 +739,12 @@ export const Component = () => {
                                                 <>
                                                     <span>·</span>
                                                     <span>Sync</span>
+                                                    {(pHistory[0]?.size ?? 0) > 0 && (
+                                                        <>
+                                                            <span>·</span>
+                                                            <span>Remote: {formatSize(pHistory[0]!.size)}</span>
+                                                        </>
+                                                    )}
                                                 </>
                                             )}
                                             {p.mode === "copy" && (
@@ -744,7 +784,21 @@ export const Component = () => {
                                                 run(action_runNow({ body: { id: p.id } }), "Backup started", () => {});
                                             }} />
                                         )}
-                                        <ActionButton label={`History (${pHistory.length})`} onClick={async () => { toggleExpand(); }} />
+                                        {p.mode === "sync" ? (
+                                            restoringSyncMap.value.has(p.id) ? (
+                                                <button class={css.runningButton} disabled>
+                                                    <span class={css.spinner} /> {restoringSyncMap.value.get(p.id)}
+                                                </button>
+                                            ) : (
+                                                <ActionButton label="Restore" onClick={async () => {
+                                                    if (await confirm("Restore from remote? Files in the volume will be overwritten with remote versions.", { confirmLabel: "Restore" })) {
+                                                        run(action_restoreSync({ body: { id: p.id } }), "Restoring...", () => {});
+                                                    }
+                                                }} />
+                                            )
+                                        ) : (
+                                            <ActionButton label={`History (${pHistory.length})`} onClick={async () => { toggleExpand(); }} />
+                                        )}
                                         <ActionButton label="Edit" onClick={async () => openPolicyEdit(p)} />
                                         <ActionButton label={p.enabled ? "Disable" : "Enable"} onClick={async () => {
                                             run(
