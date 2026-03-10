@@ -2,6 +2,7 @@ import {
     createThemeContract,
     createTheme,
     globalStyle,
+    style,
 } from "@vanilla-extract/css";
 
 export const vars = createThemeContract({
@@ -178,6 +179,27 @@ export const lightTheme = createTheme(vars, {
     shadow: {
         sm: "0 1px 3px rgba(0, 0, 0, 0.08)",
         md: "0 4px 12px rgba(0, 0, 0, 0.12)",
+    },
+});
+
+export const scrollable = style({
+    overflowY: "auto",
+    scrollbarWidth: "thin",
+    scrollbarColor: `${vars.color.borderMuted} transparent`,
+    selectors: {
+        "&::-webkit-scrollbar": {
+            width: "6px",
+        },
+        "&::-webkit-scrollbar-track": {
+            background: "transparent",
+        },
+        "&::-webkit-scrollbar-thumb": {
+            backgroundColor: vars.color.borderMuted,
+            borderRadius: "3px",
+        },
+        "&::-webkit-scrollbar-thumb:hover": {
+            backgroundColor: vars.color.border,
+        },
     },
 });
 

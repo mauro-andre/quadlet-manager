@@ -204,7 +204,7 @@ export async function pruneContainers(): Promise<{ Id: string; Size: number }[]>
 export async function pruneImages(): Promise<{ Id: string; Size: number }[]> {
     const socket = getSocket();
     return podmanRequest<{ Id: string; Size: number }[]>(
-        `/images/prune?all=false`,
+        `/images/prune?all=true`,
         socket,
         "POST"
     );

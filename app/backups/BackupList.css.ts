@@ -1,5 +1,5 @@
 import { style, keyframes } from "@vanilla-extract/css";
-import { vars } from "../styles/theme.css.js";
+import { vars, scrollable } from "../styles/theme.css.js";
 
 export const page = style({
     display: "flex",
@@ -347,14 +347,14 @@ export const spinner = style({
     animation: `${spin} 0.8s linear infinite`,
 });
 
-export const policyHistory = style({
+export const policyHistory = style([scrollable, {
     backgroundColor: vars.color.bgSurface,
     borderLeft: `1px solid ${vars.color.border}`,
     borderRight: `1px solid ${vars.color.border}`,
     borderBottom: `1px solid ${vars.color.border}`,
     borderRadius: `0 0 ${vars.radius.md} ${vars.radius.md}`,
-    overflow: "hidden",
-});
+    maxHeight: "400px",
+}]);
 
 export const runningButton = style({
     display: "inline-flex",

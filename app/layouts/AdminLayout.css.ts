@@ -1,5 +1,5 @@
 import { style } from "@vanilla-extract/css";
-import { vars } from "../styles/theme.css.js";
+import { vars, scrollable } from "../styles/theme.css.js";
 
 export const shell = style({
     display: "flex",
@@ -120,8 +120,7 @@ export const themeToggle = style({
     },
 });
 
-export const main = style({
+export const main = style([scrollable, {
     flex: 1,
     padding: vars.space.xl,
-    overflowY: "auto",
-});
+}]);

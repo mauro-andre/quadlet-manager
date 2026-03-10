@@ -215,10 +215,10 @@ export const Component = () => {
                 <h1 class={css.title}>Images</h1>
                 <div class={css.headerActions}>
                     <ActionButton
-                        label="Prune Dangling"
+                        label="Prune Unused"
                         variant="danger"
                         onClick={async () => {
-                            if (await confirm("Remove all dangling (unused) images?", { confirmLabel: "Prune" }))
+                            if (await confirm("Remove all images not used by any container?", { confirmLabel: "Prune" }))
                                 run(action_prune(), "Images pruned");
                         }}
                     />

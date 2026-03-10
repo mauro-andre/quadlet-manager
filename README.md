@@ -8,7 +8,7 @@ No existing tool covers this gap — Portainer doesn't support Quadlets, Cockpit
 
 - **Dashboard** — Real-time CPU/memory graphs, container stats, and disk usage overview
 - **Containers** — List, inspect, start/stop/restart, prune, and monitor with live metrics
-- **Quadlet Editor** — Create, edit, and delete `.container`, `.network`, `.volume` quadlet files
+- **Quadlet Editor** — Create, edit, and delete `.container`, `.network`, `.volume`, `.pod` quadlet files
 - **Systemd Units** — Create and manage custom systemd user services
 - **Images** — Pull with real-time progress, check for updates, prune dangling images
 - **Volumes** — Manage volumes with size and usage info, prune unused
