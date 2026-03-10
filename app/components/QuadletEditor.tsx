@@ -21,6 +21,7 @@ interface PodmanResources {
     images: string[];
     volumes: string[];
     networks: string[];
+    pods: string[];
 }
 
 export interface SectionsConfig {
@@ -46,17 +47,18 @@ export function QuadletEditor({ content, sectionsConfig, fetchResources = true }
     const mode = useSignal<"form" | "code">("form");
     const sections = useSignal<QuadletSection[]>(parseQuadlet(content.value));
     const revision = useSignal(0);
-    const resources = useSignal<PodmanResources>({ images: [], volumes: [], networks: [] });
+    const resources = useSignal<PodmanResources>({ images: [], volumes: [], networks: [], pods: [] });
 
-    // Fetch available images, volumes and networks for form dropdowns
+    // Fetch available images, volumes, networks and pods for form dropdowns
     useEffect(() => {
         if (typeof window === "undefined" || !fetchResources) return;
         Promise.all([
             fetch("/api/podman/images").then((r) => r.json()).catch(() => []),
             fetch("/api/podman/volumes").then((r) => r.json()).catch(() => []),
             fetch("/api/podman/networks").then((r) => r.json()).catch(() => []),
-        ]).then(([images, volumes, networks]) => {
-            resources.value = { images, volumes, networks };
+            fetch("/api/podman/pods").then((r) => r.json()).catch(() => []),
+        ]).then(([images, volumes, networks, pods]) => {
+            resources.value = { images, volumes, networks, pods };
         });
     }, []);
 
@@ -474,6 +476,52 @@ function EntryRow({ sectionName, entry, sectionIdx, entryIdx, resources, config,
                             options={networkOptions}
                             value={entry.value}
                             placeholder="Select network"
+                            onChange={updateValue}
+                            onCustom={() => { customValue.value = true; }}
+                        />
+                    )}
+                </div>
+                <button class={css.removeBtn} onClick={() => onRemove(sectionIdx, entryIdx)} title="Remove">
+                    ×
+                </button>
+            </div>
+        );
+    }
+
+    // --- Text field with resource dropdown (Pod) ---
+    const isPodField = entry.key === "Pod" && sectionName === "Container";
+    const podOptions = isPodField ? resources.pods : [];
+
+    if (isPodField && podOptions.length > 0) {
+        const isKnownPod = podOptions.includes(entry.value);
+        const showCustomPod = customValue.value || (!isKnownPod && entry.value !== "");
+
+        return (
+            <div class={css.entryRow}>
+                <span class={css.entryKeyLabel}>{entry.key}</span>
+                <span class={css.entryDesc}>{spec?.description}</span>
+                <div class={css.inputWithAction}>
+                    {showCustomPod ? (
+                        <>
+                            <input
+                                class={css.entryInput}
+                                value={entry.value}
+                                onInput={(e) => updateValue((e.target as HTMLInputElement).value)}
+                                placeholder="my-pod.pod"
+                            />
+                            <button
+                                class={css.removeBtn}
+                                onClick={() => { customValue.value = false; }}
+                                title="Switch back to dropdown"
+                            >
+                                ↩
+                            </button>
+                        </>
+                    ) : (
+                        <SearchableSelect
+                            options={podOptions}
+                            value={entry.value}
+                            placeholder="Select pod"
                             onChange={updateValue}
                             onCustom={() => { customValue.value = true; }}
                         />

@@ -275,6 +275,36 @@ const VOLUME_DIRECTIVES: DirectiveSpec[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// [Pod] — Podman pod configuration
+// ---------------------------------------------------------------------------
+
+const POD_DIRECTIVES: DirectiveSpec[] = [
+    { key: "PodName", description: "Custom name for the pod", fieldType: "text", repeatable: false },
+    { key: "Network", description: "Connect the pod to a Podman network", fieldType: "text", repeatable: true },
+    { key: "PublishPort", description: "Expose port from pod to host", fieldType: "pair", repeatable: true,
+      separator: ":", leftLabel: "Host Port", rightLabel: "Container Port" },
+    { key: "Volume", description: "Mount a volume or host path for the pod", fieldType: "pair", repeatable: true,
+      separator: ":", leftLabel: "Source", rightLabel: "Destination" },
+    { key: "DNS", description: "Custom DNS server for the pod", fieldType: "text", repeatable: true },
+    { key: "DNSSearch", description: "Custom DNS search domain", fieldType: "text", repeatable: true },
+    { key: "DNSOption", description: "Custom DNS option", fieldType: "text", repeatable: true },
+    { key: "AddHost", description: "Add host-to-IP mapping to /etc/hosts", fieldType: "pair", repeatable: true,
+      separator: ":", leftLabel: "Hostname", rightLabel: "IP Address" },
+    { key: "IP", description: "Static IPv4 address for the pod", fieldType: "text", repeatable: false },
+    { key: "IP6", description: "Static IPv6 address for the pod", fieldType: "text", repeatable: false },
+    { key: "HostName", description: "Hostname for the pod", fieldType: "text", repeatable: false },
+    { key: "UserNS", description: "User namespace mode", fieldType: "text", repeatable: false },
+    { key: "UIDMap", description: "UID mapping for user namespace", fieldType: "text", repeatable: true },
+    { key: "GIDMap", description: "GID mapping for user namespace", fieldType: "text", repeatable: true },
+    { key: "SubUIDMap", description: "UID mapping from /etc/subuid", fieldType: "text", repeatable: false },
+    { key: "SubGIDMap", description: "GID mapping from /etc/subgid", fieldType: "text", repeatable: false },
+    { key: "ShmSize", description: "Size of /dev/shm for the pod", fieldType: "text", repeatable: false },
+    { key: "GlobalArgs", description: "Arguments between podman and pod", fieldType: "text", repeatable: true },
+    { key: "PodmanArgs", description: "Additional arguments for podman pod create", fieldType: "text", repeatable: true },
+    { key: "ContainersConfModule", description: "Load a containers.conf module", fieldType: "text", repeatable: true },
+];
+
+// ---------------------------------------------------------------------------
 // Section registry
 // ---------------------------------------------------------------------------
 
@@ -284,6 +314,7 @@ export const SECTIONS: SectionSpec[] = [
     { name: "Install", description: "Controls when the service starts automatically", directives: INSTALL_DIRECTIVES },
     { name: "Network", description: "Podman network configuration", directives: NETWORK_DIRECTIVES },
     { name: "Volume", description: "Podman volume configuration", directives: VOLUME_DIRECTIVES },
+    { name: "Pod", description: "Podman pod configuration", directives: POD_DIRECTIVES },
 ];
 
 /**
@@ -306,7 +337,7 @@ export function getDirectiveSpec(sectionName: string, key: string): DirectiveSpe
 /**
  * Get the sections relevant to a quadlet file type.
  */
-export function getSectionsForType(type: "container" | "network" | "volume"): string[] {
+export function getSectionsForType(type: "container" | "network" | "volume" | "pod"): string[] {
     switch (type) {
         case "container":
             return ["Unit", "Container", "Install"];
@@ -314,5 +345,7 @@ export function getSectionsForType(type: "container" | "network" | "volume"): st
             return ["Network"];
         case "volume":
             return ["Volume"];
+        case "pod":
+            return ["Pod", "Install"];
     }
 }

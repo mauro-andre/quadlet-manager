@@ -4,8 +4,8 @@ import type { QuadletFile, QuadletListItem, QuadletType } from "./quadlet.types.
 import type { AuthUser } from "../auth/auth.types.js";
 import { daemonReload, getServiceStatus } from "../systemd/systemd.service.js";
 
-const VALID_EXTENSIONS = new Set([".container", ".network", ".volume"]);
-const FILENAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(container|network|volume)$/;
+const VALID_EXTENSIONS = new Set([".container", ".network", ".volume", ".pod"]);
+const FILENAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]*\.(container|network|volume|pod)$/;
 
 function getQuadletDir(user: AuthUser): string {
     if (process.env.QUADLET_DIR) return process.env.QUADLET_DIR;
@@ -19,6 +19,7 @@ function extensionToType(ext: string): QuadletType {
 function filenameToServiceName(filename: string): string {
     const name = basename(filename, extname(filename));
     const ext = extname(filename);
+    if (ext === ".pod") return `${name}-pod.service`;
     if (ext === ".volume") return `${name}-volume.service`;
     if (ext === ".network") return `${name}-network.service`;
     return `${name}.service`;
@@ -27,7 +28,7 @@ function filenameToServiceName(filename: string): string {
 function validateFilename(filename: string): void {
     if (!FILENAME_PATTERN.test(filename)) {
         throw new Error(
-            `Invalid quadlet filename: "${filename}". Must match pattern: name.(container|network|volume)`
+            `Invalid quadlet filename: "${filename}". Must match pattern: name.(container|network|volume|pod)`
         );
     }
 }

@@ -354,6 +354,19 @@ function registerPodmanEndpoints(app: Hono) {
         const networks = await listNetworks().catch(() => []);
         return c.json(networks.map((n) => n.name).filter(Boolean));
     });
+
+    app.get("/api/podman/pods", async (c) => {
+        const { readdir } = await import("node:fs/promises");
+        const { extname, join } = await import("node:path");
+        const { homedir } = await import("node:os");
+        const quadletDir = process.env.QUADLET_DIR || join(homedir(), ".config/containers/systemd");
+        try {
+            const entries = await readdir(quadletDir);
+            return c.json(entries.filter((f) => extname(f) === ".pod"));
+        } catch {
+            return c.json([]);
+        }
+    });
 }
 
 function registerSystemEndpoints(app: Hono) {

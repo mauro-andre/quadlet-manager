@@ -1,4 +1,4 @@
-export type QuadletType = "container" | "network" | "volume";
+export type QuadletType = "container" | "network" | "volume" | "pod";
 
 export interface QuadletFile {
     name: string;

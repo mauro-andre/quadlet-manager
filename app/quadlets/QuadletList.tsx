@@ -65,8 +65,10 @@ export const action_delete = async ({
     );
 
     const user = c!.get("user");
-    const serviceName =
-        body.filename.replace(/\.[^.]+$/, "") + ".service";
+    const name = body.filename.replace(/\.[^.]+$/, "");
+    const ext = body.filename.match(/\.[^.]+$/)?.[0] ?? "";
+    const suffix = ext === ".pod" ? "-pod" : ext === ".volume" ? "-volume" : ext === ".network" ? "-network" : "";
+    const serviceName = `${name}${suffix}.service`;
     await stopService(serviceName).catch(() => {});
     await disableService(serviceName).catch(() => {});
     await deleteQuadlet(body.filename, user);
@@ -245,6 +247,7 @@ export const Component = () => {
                         <option value="container">Containers</option>
                         <option value="network">Networks</option>
                         <option value="volume">Volumes</option>
+                        <option value="pod">Pods</option>
                     </select>
                 </div>
                 <div class={css.tableWrapper}>

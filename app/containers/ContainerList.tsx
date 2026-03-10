@@ -100,6 +100,8 @@ export const Component = () => {
                                     <th class={css.th}>Name</th>
                                     <th class={css.th}>Image</th>
                                     <th class={css.th}>Status</th>
+                                    <th class={css.th}>Pod</th>
+                                    <th class={css.th}>Network</th>
                                     <th class={css.th}>CPU</th>
                                     <th class={css.th}>Memory</th>
                                     <th class={css.th}>Created</th>
@@ -137,6 +139,12 @@ export const Component = () => {
                                                 <StatusBadge
                                                     status={c.State}
                                                 />
+                                            </td>
+                                            <td class={css.td}>
+                                                {c.PodName || "-"}
+                                            </td>
+                                            <td class={css.td}>
+                                                {c.Networks?.length > 0 ? c.Networks.join(", ") : "-"}
                                             </td>
                                             <td class={css.td}>
                                                 {isRunning && m ? `${m.cpu.toFixed(2)}%` : "-"}

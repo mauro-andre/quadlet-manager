@@ -25,6 +25,12 @@ Gateway=
 `,
     volume: `[Volume]
 `,
+    pod: `[Pod]
+PodName=
+
+[Install]
+WantedBy=default.target
+`,
 };
 
 export const action_create = async ({
@@ -103,6 +109,7 @@ export const Component = () => {
                                 </option>
                                 <option value="network">.network</option>
                                 <option value="volume">.volume</option>
+                                <option value="pod">.pod</option>
                             </select>
                         </div>
                     </div>

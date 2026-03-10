@@ -25,6 +25,9 @@ export interface PodmanContainer {
     Ports: PodmanPort[];
     Labels: Record<string, string>;
     Mounts: string[];
+    Networks: string[];
+    Pod: string;
+    PodName: string;
 }
 
 export interface PodmanContainerInspect {
