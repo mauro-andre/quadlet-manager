@@ -308,9 +308,14 @@ const POD_DIRECTIVES: DirectiveSpec[] = [
 // Section registry
 // ---------------------------------------------------------------------------
 
+// Import Service directives from systemd (reused in quadlet editor)
+import { getSystemdSectionSpec } from "../systemd/systemd.directives.js";
+const SERVICE_SECTION = getSystemdSectionSpec("Service")!;
+
 export const SECTIONS: SectionSpec[] = [
     { name: "Unit", description: "Systemd unit configuration: dependencies and ordering", directives: UNIT_DIRECTIVES },
     { name: "Container", description: "Container runtime configuration", directives: CONTAINER_DIRECTIVES },
+    SERVICE_SECTION,
     { name: "Install", description: "Controls when the service starts automatically", directives: INSTALL_DIRECTIVES },
     { name: "Network", description: "Podman network configuration", directives: NETWORK_DIRECTIVES },
     { name: "Volume", description: "Podman volume configuration", directives: VOLUME_DIRECTIVES },
@@ -340,12 +345,12 @@ export function getDirectiveSpec(sectionName: string, key: string): DirectiveSpe
 export function getSectionsForType(type: "container" | "network" | "volume" | "pod"): string[] {
     switch (type) {
         case "container":
-            return ["Unit", "Container", "Install"];
+            return ["Unit", "Container", "Service", "Install"];
         case "network":
             return ["Network"];
         case "volume":
             return ["Volume"];
         case "pod":
-            return ["Pod", "Install"];
+            return ["Pod", "Service", "Install"];
     }
 }
