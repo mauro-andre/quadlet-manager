@@ -51,6 +51,7 @@ export const SCHEDULES = [
 ] as const;
 
 export const RETENTIONS = [
+    { label: "Keep last 3", value: 3 },
     { label: "Keep last 6", value: 6 },
     { label: "Keep last 12", value: 12 },
     { label: "Keep last 24", value: 24 },

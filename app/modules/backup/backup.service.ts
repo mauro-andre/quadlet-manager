@@ -281,15 +281,21 @@ async function generateScript(policy: Policy, storage: Storage): Promise<string>
             lines.push(
                 "",
                 "# Prune old backups (keep last N)",
+                "# Disable ERR trap — retention failure must not mark a successful backup as error",
+                "trap - ERR",
                 `RETENTION=${policy.retention}`,
-                'FILES=$(rclone lsf "$REMOTE_TARGET/" --config "$RCLONE_CONFIG" | sort -r)',
-                'COUNT=0',
-                'echo "$FILES" | while IFS= read -r f; do',
-                '    COUNT=$((COUNT + 1))',
-                '    if [ "$COUNT" -gt "$RETENTION" ]; then',
-                '        rclone deletefile "$REMOTE_TARGET/$f" --config "$RCLONE_CONFIG" 2>/dev/null || true',
-                '    fi',
-                'done',
+                'FILES=$(rclone lsf "$REMOTE_TARGET/" --config "$RCLONE_CONFIG" 2>/dev/null || echo "")',
+                'if [ -n "$FILES" ]; then',
+                '    COUNT=0',
+                '    while IFS= read -r f; do',
+                '        [ -z "$f" ] && continue',
+                '        COUNT=$((COUNT + 1))',
+                '        if [ "$COUNT" -gt "$RETENTION" ]; then',
+                '            rclone deletefile "$REMOTE_TARGET/$f" --config "$RCLONE_CONFIG" 2>/dev/null || true',
+                '            log "Pruned old backup: $f"',
+                '        fi',
+                '    done <<< "$FILES"',
+                'fi',
             );
         }
     }
@@ -585,15 +591,9 @@ export async function handleScriptNotify(policyId: string, phase: string, file?:
                     ? `backups/${safeName(policy?.name ?? "unknown")}/${file}`
                     : `backups/${safeName(policy?.name ?? "unknown")}`;
                 await backupStore.updateHistoryComplete(historyId, size ?? 0, remotePath);
-                // Prune old backups (copy mode only)
+                // Prune old history entries from DB (remote files are pruned by the backup script)
                 if (policy && policy.mode === "copy" && policy.retention > 0) {
-                    const excess = await backupStore.pruneHistory(policyId, policy.retention);
-                    const storage = await backupStore.getStorage(policy.storageId);
-                    if (storage) {
-                        for (const old of excess) {
-                            await deleteRemoteFile(storage, old.remotePath).catch(() => {});
-                        }
-                    }
+                    await backupStore.pruneHistory(policyId, policy.retention);
                 }
             } else {
                 await backupStore.updateHistoryError(historyId, phase.split(":").slice(2).join(":") || "Backup failed");
